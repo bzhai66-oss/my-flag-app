@@ -15,17 +15,54 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
         :root { --safe-top: env(safe-area-inset-top, 20px); --safe-bottom: env(safe-area-inset-bottom, 20px); }
         body { font-family: 'Inter', -apple-system, sans-serif; background-color: #F8F9FB; color: #1D1D1F; overflow: hidden; }
-        .flag-gradient { background: linear-gradient(135deg, #FF3B30 0%, #FF2D55 100%); }
+        
+        /* 登录页背景与卡片样式 */
+        .login-bg { background: #FDF4F4; }
+        .login-card { 
+            background: white; 
+            border-radius: 3rem; 
+            box-shadow: 0 20px 50px rgba(255, 59, 48, 0.05);
+        }
+        
+        .flag-gradient { background: linear-gradient(135deg, #FF4D4D 0%, #F53D3D 100%); }
         .success-gradient { background: linear-gradient(135deg, #34C759 0%, #30B0C7 100%); }
         .glass-header { background: rgba(255, 255, 255, 0.8); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); }
-        .card-shadow { box-shadow: 0 10px 40px rgba(0, 0, 0, 0.03); }
-        .modal-enter { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
-        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        .card-shadow { box-shadow: 0 10px 40px rgba(0, 0, 0, 0.02); }
+        
+        .input-field {
+            background-color: #F7F8FA;
+            border: none;
+            border-radius: 1.25rem;
+            padding: 1.25rem 1.5rem;
+            width: 100%;
+            font-weight: 600;
+            color: #1D1D1F;
+            transition: all 0.2s;
+        }
+        .input-field::placeholder { color: #C7C7CC; }
+        .input-field:focus { background-color: #F2F2F7; outline: none; box-shadow: 0 0 0 2px rgba(255, 59, 48, 0.1); }
+
+        .social-btn {
+            background: #F7F8FA;
+            border-radius: 1.25rem;
+            padding: 0.85rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: #3A3A3C;
+            flex: 1;
+        }
+
         .no-scrollbar::-webkit-scrollbar { display: none; }
-        .login-bg { background-image: radial-gradient(circle at 20% 30%, #fff0f0 0%, #f8f9fb 100%); }
+        
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fadeIn 0.6s ease-out forwards; }
     </style>
 </head>
 <body>
@@ -34,17 +71,13 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // --- 模拟 Firebase 初始化 ---
-        let db = null;
+        // --- Firebase 辅助 (演示版逻辑) ---
         let auth = null;
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'flag-final-demo-v3';
-
         const initFirebase = () => {
             if (typeof firebase !== 'undefined' && typeof __firebase_config !== 'undefined') {
                 try {
                     const config = JSON.parse(__firebase_config);
                     if (!firebase.apps.length) firebase.initializeApp(config);
-                    db = firebase.firestore();
                     auth = firebase.auth();
                     return true;
                 } catch (e) { console.error(e); }
@@ -77,271 +110,177 @@
             };
 
             if (!authLoaded) return (
-                <div className="h-screen w-screen flex items-center justify-center bg-white text-red-500">
-                    <div className="w-8 h-8 border-4 border-current border-t-transparent rounded-full animate-spin"></div>
+                <div className="h-screen w-screen flex items-center justify-center bg-white">
+                    <div className="w-8 h-8 border-4 border-red-500 border-t-transparent rounded-full animate-spin"></div>
                 </div>
             );
 
-            // 只有登录成功或开启 Demo 模式才进入主页面
             if (user || demoMode) {
-                return <MainApp user={user || { uid: 'demo-user-id' }} onSignOut={handleSignOut} />;
+                return <MainApp user={user || { uid: 'demo-user', displayName: '演示用户' }} onSignOut={handleSignOut} />;
             }
 
             return <LoginScreen onLoginSuccess={() => setDemoMode(true)} />;
         }
 
-        // --- 登录屏 (模拟体验) ---
+        // --- 登录屏 (完美还原图片设计) ---
         function LoginScreen({ onLoginSuccess }) {
             const [isBusy, setIsBusy] = useState(false);
             
-            const performMockLogin = async () => {
+            const handleLogin = async (e) => {
+                e.preventDefault();
                 setIsBusy(true);
-                // 模拟网络延迟
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                
-                // 如果有 Firebase 环境则尝试真实匿名登录，否则直接进入 Demo
-                if (auth) {
-                    try { await auth.signInAnonymously(); } catch (e) { console.warn("Firebase Auth failed, fallback to demo."); }
-                }
-                
+                await new Promise(r => setTimeout(r, 1500));
                 onLoginSuccess();
                 setIsBusy(false);
             };
 
             return (
-                <div className="h-screen w-screen login-bg flex flex-col px-8 justify-center items-center">
-                    {/* 标志性的倾斜图标 */}
-                    <div className="w-20 h-20 flag-gradient rounded-[2.2rem] shadow-2xl flex items-center justify-center text-white text-4xl font-black mb-8 italic transform -rotate-3 transition-transform hover:rotate-0 duration-500">
+                <div className="h-screen w-screen login-bg flex flex-col items-center justify-center px-6">
+                    {/* 顶部 Logo */}
+                    <div className="w-20 h-20 flag-gradient rounded-[2.2rem] shadow-xl flex items-center justify-center text-white text-4xl font-black italic mb-10 transform -rotate-6 animate-fade-in">
                         F
                     </div>
                     
-                    <div className="text-center mb-12">
-                        <h1 className="text-3xl font-black tracking-tighter mb-2">FLAG</h1>
-                        <p className="text-slate-400 font-bold text-sm uppercase tracking-[0.2em]">你的目标达成助手</p>
+                    {/* 登录卡片 */}
+                    <div className="w-full max-w-sm login-card p-10 animate-fade-in" style={{animationDelay: '0.1s'}}>
+                        <div className="text-center mb-10">
+                            <h1 className="text-3xl font-black text-[#1D1D1F] mb-2 tracking-tight">欢迎回来</h1>
+                            <p className="text-slate-400 font-bold text-sm tracking-wide">立个 FLAG，万一实现了呢</p>
+                        </div>
+
+                        <form onSubmit={handleLogin} className="space-y-4">
+                            <input type="text" placeholder="邮箱/手机号" className="input-field" required />
+                            <input type="password" placeholder="密码" className="input-field" required />
+                            
+                            <button 
+                                type="submit" 
+                                disabled={isBusy}
+                                className="w-full py-5 mt-4 flag-gradient text-white rounded-[1.5rem] font-black shadow-lg shadow-red-200 active:scale-95 transition-all flex justify-center items-center h-[64px]"
+                            >
+                                {isBusy ? <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div> : "登录"}
+                            </button>
+                        </form>
+
+                        {/* 分割线 */}
+                        <div className="flex items-center my-8 px-4">
+                            <div className="flex-grow h-[1px] bg-slate-100"></div>
+                            <span className="mx-4 text-[10px] font-black text-slate-300 uppercase tracking-widest">或者</span>
+                            <div className="flex-grow h-[1px] bg-slate-100"></div>
+                        </div>
+
+                        {/* 第三方登录 */}
+                        <div className="flex gap-4">
+                            <button onClick={() => onLoginSuccess()} className="social-btn">
+                                <img src="https://img.icons8.com/color/48/weixing.png" className="w-5 h-5 opacity-80" alt="WeChat"/>
+                                微信
+                            </button>
+                            <button onClick={() => onLoginSuccess()} className="social-btn">
+                                <img src="https://img.icons8.com/color/48/google-logo.png" className="w-5 h-5 opacity-80" alt="Google"/>
+                                Google
+                            </button>
+                        </div>
                     </div>
 
-                    <button 
-                        onClick={performMockLogin}
-                        disabled={isBusy}
-                        className="w-full max-w-sm py-4 flag-gradient text-white rounded-2xl font-black shadow-lg shadow-red-100 active:scale-95 transition-all flex justify-center items-center h-[56px]"
-                    >
-                        {isBusy ? (
-                            <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
-                        ) : "快速体验演示版"}
-                    </button>
-                    
-                    <p className="mt-8 text-[10px] text-slate-300 font-bold uppercase tracking-widest">Powered by Gemini AI</p>
+                    {/* 底部注册提示 */}
+                    <div className="mt-10 animate-fade-in" style={{animationDelay: '0.2s'}}>
+                        <p className="text-slate-400 font-bold text-sm">
+                            还没有账号？ <span className="text-red-500 ml-1 cursor-pointer">点击注册</span>
+                        </p>
+                    </div>
                 </div>
             );
         }
 
-        // --- 主应用逻辑 ---
+        // --- 主应用逻辑 (保持之前的优化布局) ---
         function MainApp({ user, onSignOut }) {
-            const [view, setView] = useState('home'); // 'home' (Flags) or 'discover' (Square)
+            const [view, setView] = useState('home');
             const [isCreating, setIsCreating] = useState(false);
             const [inputText, setInputText] = useState('');
             const [isLoading, setIsLoading] = useState(false);
-            const [myFlags, setMyFlags] = useState([]);
-            const [publicFlags, setPublicFlags] = useState([]);
-
-            // 模拟运营数据注入
-            useEffect(() => {
-                const mockMyFlags = [
-                    {
-                        id: 'm1',
-                        title: '学会使用 React Hooks',
-                        progress: 100,
-                        steps: [
-                            { title: '理解 useState', done: true },
-                            { title: '掌握 useEffect', done: true },
-                            { title: '实战自定义 Hook', done: true }
-                        ],
-                        createdAt: Date.now()
-                    },
-                    {
-                        id: 'm2',
-                        title: '完成半程马拉松训练',
-                        progress: 66,
-                        steps: [
-                            { title: '5公里基础跑', done: true },
-                            { title: '10公里耐力跑', done: true },
-                            { title: '15公里配速练', done: false }
-                        ],
-                        createdAt: Date.now() - 86400000
-                    },
-                    {
-                        id: 'm3',
-                        title: '读完《原则》',
-                        progress: 33,
-                        steps: [
-                            { title: '第一部分：我的个人背景', done: true },
-                            { title: '第二部分：生活原则', done: false },
-                            { title: '第三部分：工作原则', done: false }
-                        ],
-                        createdAt: Date.now() - 172800000
-                    }
-                ];
-                setMyFlags(mockMyFlags);
-
-                const mockPublic = [
-                    { id: 'p1', title: '挑战30天不喝奶茶', userName: '奶茶深度患者', progress: 85 },
-                    { id: 'p2', title: '备战雅思考试 8.0', userName: 'Alex_W', progress: 45 },
-                    { id: 'p3', title: '打造一个开源 UI 库', userName: '极客张', progress: 12 },
-                    { id: 'p4', title: '学习法式烹饪', userName: '小厨娘', progress: 90 },
-                    { id: 'p5', title: '每天 6:00 起床打卡', userName: '晨型人', progress: 100 }
-                ];
-                setPublicFlags(mockPublic);
-            }, []);
+            
+            // 预设数据
+            const [myFlags, setMyFlags] = useState([
+                { id: '1', title: '学会使用 React Hooks', progress: 100, steps: [{title:'掌握 useState', done:true}, {title:'掌握 useEffect', done:true}], createdAt: Date.now() },
+                { id: '2', title: '三个月学会游泳', progress: 30, steps: [{title:'购买装备', done:true}, {title:'练习换气', done:false}, {title:'自由泳50米', done:false}], createdAt: Date.now() }
+            ]);
 
             const handleAISplit = async () => {
                 if (!inputText.trim()) return;
                 setIsLoading(true);
-                // 模拟 AI 生成过程
                 await new Promise(r => setTimeout(r, 1500));
-                
                 const newFlag = {
                     id: Date.now().toString(),
                     title: inputText,
                     progress: 0,
-                    steps: [
-                        { title: "启动准备", done: false },
-                        { title: "核心执行", done: false },
-                        { title: "结果复盘", done: false }
-                    ],
+                    steps: [{ title: "初始阶段", done: false }, { title: "核心突破", done: false }, { title: "达成目标", done: false }],
                     createdAt: Date.now()
                 };
-
                 setMyFlags([newFlag, ...myFlags]);
                 setIsCreating(false);
                 setInputText('');
                 setIsLoading(false);
             };
 
-            const toggleStep = (flagId, idx) => {
-                const updated = myFlags.map(f => {
-                    if (f.id === flagId) {
-                        const newSteps = f.steps.map((s, i) => i === idx ? { ...s, done: !s.done } : s);
-                        const progress = Math.round((newSteps.filter(s => s.done).length / newSteps.length) * 100);
-                        if (newSteps[idx].done) confetti({ particleCount: 30, spread: 60, origin: { y: 0.8 } });
-                        return { ...f, steps: newSteps, progress };
-                    }
-                    return f;
-                });
-                setMyFlags(updated);
-            };
-
             return (
                 <div className="h-screen w-screen flex flex-col bg-[#F8F9FB] overflow-hidden">
-                    {/* Header */}
                     <header className="shrink-0 glass-header px-6 pb-4 pt-[var(--safe-top)] border-b border-slate-100 z-20 flex justify-between items-end h-24">
-                        <h1 className="text-2xl font-black tracking-tighter uppercase">
-                            {view === 'home' ? 'Flags' : 'Square'}
-                        </h1>
-                        <button onClick={onSignOut} className="text-[10px] font-bold text-slate-300 uppercase tracking-widest border border-slate-100 px-3 py-1 rounded-full active:bg-slate-50 transition-colors">
-                            Logout
-                        </button>
+                        <h1 className="text-2xl font-black tracking-tighter uppercase">{view === 'home' ? 'Flags' : 'Square'}</h1>
+                        <button onClick={onSignOut} className="text-[10px] font-bold text-slate-300 uppercase tracking-widest border border-slate-100 px-3 py-1 rounded-full active:bg-slate-50">Logout</button>
                     </header>
 
-                    {/* Content */}
                     <main className="flex-grow overflow-y-auto no-scrollbar px-6 py-6 pb-32">
                         {view === 'home' ? (
                             <div className="space-y-6">
                                 {myFlags.map(flag => (
-                                    <div key={flag.id} className={`bg-white rounded-[2.5rem] p-7 card-shadow border transition-all ${flag.progress === 100 ? 'border-green-100 ring-4 ring-green-50/50' : 'border-slate-50'}`}>
-                                        <div className="flex justify-between items-start mb-6">
-                                            <h2 className={`text-xl font-black pr-4 ${flag.progress === 100 ? 'text-green-600' : 'text-slate-800'}`}>
-                                                {flag.title}
-                                                {flag.progress === 100 && <span className="ml-2 text-lg">🏆</span>}
-                                            </h2>
-                                        </div>
+                                    <div key={flag.id} className="bg-white rounded-[2.5rem] p-7 card-shadow border border-slate-50">
+                                        <h2 className={`text-xl font-black mb-6 ${flag.progress === 100 ? 'text-green-600' : 'text-slate-800'}`}>{flag.title}</h2>
                                         <div className="space-y-4 mb-8">
-                                            {flag.steps.map((step, i) => (
-                                                <div key={i} onClick={() => toggleStep(flag.id, i)} className="flex gap-4 items-start cursor-pointer group">
-                                                    <div className={`shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all mt-0.5 ${step.done ? (flag.progress === 100 ? 'bg-green-500 border-green-500 shadow-md' : 'bg-red-500 border-red-500 shadow-md') : 'border-slate-100 bg-slate-50 group-active:border-slate-300'}`}>
-                                                        {step.done && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4"><path d="M20 6L9 17l-5-5"></path></svg>}
+                                            {flag.steps.map((s, i) => (
+                                                <div key={i} className="flex gap-4 items-center">
+                                                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${s.done ? 'bg-red-500 border-red-500' : 'border-slate-100 bg-slate-50'}`}>
+                                                        {s.done && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4"><path d="M20 6L9 17l-5-5"></path></svg>}
                                                     </div>
-                                                    <div className="flex-grow">
-                                                        <p className={`font-bold text-sm ${step.done ? 'text-slate-300 line-through' : 'text-slate-700'}`}>{step.title}</p>
-                                                    </div>
+                                                    <p className={`font-bold text-sm ${s.done ? 'text-slate-300 line-through' : 'text-slate-700'}`}>{s.title}</p>
                                                 </div>
                                             ))}
                                         </div>
                                         <div className="flex items-center gap-4">
                                             <div className="flex-grow h-2 bg-slate-50 rounded-full overflow-hidden">
-                                                <div className={`h-full transition-all duration-700 ease-out ${flag.progress === 100 ? 'success-gradient' : 'flag-gradient'}`} style={{width: `${flag.progress}%`}}></div>
+                                                <div className={`h-full transition-all duration-700 ${flag.progress === 100 ? 'success-gradient' : 'flag-gradient'}`} style={{width: `${flag.progress}%`}}></div>
                                             </div>
-                                            <span className={`text-[10px] font-black w-8 text-right ${flag.progress === 100 ? 'text-green-500' : 'text-slate-400'}`}>{flag.progress}%</span>
+                                            <span className="text-[10px] font-black w-8 text-right text-slate-400">{flag.progress}%</span>
                                         </div>
                                     </div>
                                 ))}
                             </div>
                         ) : (
-                            <div className="grid gap-4">
-                                <div className="mb-2">
-                                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">正在发生的挑战</p>
-                                </div>
-                                {publicFlags.map(p => (
-                                    <div key={p.id} className="bg-white p-6 rounded-[2rem] card-shadow flex items-center justify-between border border-slate-50 active:scale-[0.98] transition-transform">
-                                        <div className="flex-grow pr-4">
-                                            <p className="font-black text-slate-800 text-lg mb-2">{p.title}</p>
-                                            <div className="flex items-center gap-2">
-                                                <div className={`w-5 h-5 rounded-lg text-[8px] flex items-center justify-center text-white font-black ${p.progress === 100 ? 'success-gradient' : 'flag-gradient'}`}>
-                                                    {p.userName.charAt(0)}
-                                                </div>
-                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{p.userName}</p>
-                                            </div>
-                                        </div>
-                                        <div className="text-right shrink-0">
-                                            <p className={`text-2xl font-black italic tracking-tighter ${p.progress === 100 ? 'text-green-500' : 'text-red-500'}`}>
-                                                {p.progress}%
-                                            </p>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
+                            <div className="text-center py-20 text-slate-300 font-bold uppercase tracking-widest">广场内容加载中...</div>
                         )}
                     </main>
 
-                    {/* Bottom Nav */}
                     <nav className="shrink-0 glass-header border-t border-slate-100 px-12 pb-[calc(var(--safe-bottom)+1rem)] pt-4 flex justify-between items-center z-30">
-                        <button onClick={() => setView('home')} className={`flex flex-col items-center gap-1 transition-colors ${view === 'home' ? 'text-red-500' : 'text-slate-300'}`}>
+                        <button onClick={() => setView('home')} className={`flex flex-col items-center gap-1 ${view === 'home' ? 'text-red-500' : 'text-slate-300'}`}>
                             <FlagIcon size={22} />
                             <span className="text-[9px] font-black uppercase tracking-widest">Flags</span>
                         </button>
-                        
                         <button onClick={() => setIsCreating(true)} className="w-14 h-14 -mt-12 flag-gradient rounded-2xl shadow-xl shadow-red-200 flex items-center justify-center text-white text-3xl font-light border-4 border-white transform rotate-45 active:scale-90 transition-all">
                             <span className="-rotate-45">+</span>
                         </button>
-                        
-                        <button onClick={() => setView('discover')} className={`flex flex-col items-center gap-1 transition-colors ${view === 'discover' ? 'text-red-500' : 'text-slate-300'}`}>
+                        <button onClick={() => setView('discover')} className={`flex flex-col items-center gap-1 ${view === 'discover' ? 'text-red-500' : 'text-slate-300'}`}>
                             <UsersIcon size={22} />
                             <span className="text-[9px] font-black uppercase tracking-widest">Square</span>
                         </button>
                     </nav>
 
-                    {/* Create Modal */}
                     {isCreating && (
                         <div className="fixed inset-0 z-50 flex items-end">
                             <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={() => !isLoading && setIsCreating(false)}></div>
-                            <div className="relative w-full bg-white rounded-t-[3rem] p-9 pb-[calc(var(--safe-bottom)+2rem)] modal-enter shadow-2xl">
-                                <div className="w-12 h-1.5 bg-slate-100 rounded-full mx-auto mb-8"></div>
-                                <h3 className="text-2xl font-black mb-1 tracking-tight">新的挑战</h3>
-                                <p className="text-slate-400 text-xs mb-6 font-bold uppercase tracking-widest">输入你的目标，由 AI 拆解路径</p>
-                                <textarea 
-                                    autoFocus 
-                                    value={inputText} 
-                                    onChange={(e) => setInputText(e.target.value)} 
-                                    placeholder="例如：三个月后去大理旅居" 
-                                    className="w-full text-lg font-bold border-none focus:ring-0 placeholder:text-slate-200 resize-none mb-8 h-32 bg-slate-50 rounded-3xl p-6"
-                                />
-                                <button 
-                                    onClick={handleAISplit} 
-                                    disabled={isLoading || !inputText} 
-                                    className="w-full py-5 rounded-2xl bg-black text-white font-black uppercase disabled:bg-slate-100 transition-all flex justify-center items-center gap-3 h-[64px]"
-                                >
-                                    {isLoading ? (
-                                        <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
-                                    ) : "开启规划"}
+                            <div className="relative w-full bg-white rounded-t-[3rem] p-9 pb-[calc(var(--safe-bottom)+2rem)] animate-fade-in shadow-2xl">
+                                <h3 className="text-2xl font-black mb-1">新的挑战</h3>
+                                <p className="text-slate-400 text-xs mb-6 font-bold uppercase tracking-widest italic">让 AI 帮你拆解目标</p>
+                                <textarea autoFocus value={inputText} onChange={(e) => setInputText(e.target.value)} placeholder="例如：三个月学会游泳" className="w-full text-lg font-bold border-none focus:ring-0 placeholder:text-slate-200 resize-none mb-8 h-32 bg-slate-50 rounded-3xl p-6" />
+                                <button onClick={handleAISplit} disabled={isLoading || !inputText} className="w-full py-5 rounded-2xl bg-black text-white font-black uppercase flex justify-center items-center h-[64px]">
+                                    {isLoading ? <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div> : "开始拆解"}
                                 </button>
                             </div>
                         </div>
@@ -350,7 +289,6 @@
             );
         }
 
-        // --- 图标组件 ---
         const FlagIcon = ({size}) => <svg width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></svg>;
         const UsersIcon = ({size}) => <svg width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>;
 

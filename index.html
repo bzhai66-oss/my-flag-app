@@ -11,12 +11,12 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <!-- Firebase SDKs -->
-    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
-        :root { --safe-top: env(safe-area-inset-top); --safe-bottom: env(safe-area-inset-bottom); }
+        :root { --safe-top: env(safe-area-inset-top, 0px); --safe-bottom: env(safe-area-inset-bottom, 0px); }
         body { font-family: 'Inter', -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; background-color: #f8fafc; margin: 0; }
         .flag-gradient { background: linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%); }
         .glass-card { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
@@ -30,28 +30,43 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useRef } = React;
 
-        // --- 配置注入 (由环境自动处理) ---
-        const firebaseConfig = JSON.parse(__firebase_config);
+        // 安全解析配置
+        let firebaseConfig = null;
+        try {
+            if (typeof __firebase_config !== 'undefined') {
+                firebaseConfig = JSON.parse(__firebase_config);
+            }
+        } catch (e) { console.warn("Firebase config not found, switching to local mode."); }
+
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'flag-app-v1';
         
-        // 初始化 Firebase
-        firebase.initializeApp(firebaseConfig);
-        const auth = firebase.auth();
-        const db = firebase.firestore();
+        // 只有在有配置时才初始化 Firebase
+        if (firebaseConfig) {
+            if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        }
 
         function App() {
             const [user, setUser] = useState(null);
-            const [activeTab, setActiveTab] = useState('home'); // 'home' | 'discover'
+            const [activeTab, setActiveTab] = useState('home');
             const [isCreating, setIsCreating] = useState(false);
             const [inputText, setInputText] = useState('');
             const [isLoading, setIsLoading] = useState(false);
             const [myFlags, setMyFlags] = useState([]);
             const [publicFlags, setPublicFlags] = useState([]);
 
-            // 1. 身份认证
+            // 1. 身份认证与数据初始化
             useEffect(() => {
+                if (!firebaseConfig) {
+                    // 本地模拟登录状态
+                    setUser({ uid: 'local-user', isAnonymous: true });
+                    const saved = localStorage.getItem('local_flags');
+                    if (saved) setMyFlags(JSON.parse(saved));
+                    return;
+                }
+
+                const auth = firebase.auth();
                 const initAuth = async () => {
                     try {
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -67,16 +82,17 @@
 
             // 2. 数据监听
             useEffect(() => {
-                if (!user) return;
+                if (!user || !firebaseConfig) return;
 
-                // 监听个人 Flag (私有路径)
+                const db = firebase.firestore();
+                // 监听个人 Flag
                 const myUnsub = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags')
                     .onSnapshot(snap => {
                         const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                         setMyFlags(data);
-                    });
+                    }, err => console.error("Firestore error:", err));
 
-                // 监听广场 (公共路径)
+                // 监听广场
                 const pubUnsub = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sharedFlags')
                     .onSnapshot(snap => {
                         const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -86,59 +102,58 @@
                 return () => { myUnsub(); pubUnsub(); };
             }, [user]);
 
+            // 本地模式持久化
+            useEffect(() => {
+                if (!firebaseConfig && myFlags.length > 0) {
+                    localStorage.setItem('local_flags', JSON.stringify(myFlags));
+                }
+            }, [myFlags]);
+
             // 3. AI 拆解
             const handleAISplit = async () => {
-                if (!inputText.trim() || !user) return;
+                if (!inputText.trim()) return;
                 setIsLoading(true);
                 
                 const apiKey = ""; // 运行时提供
                 const systemPrompt = "你是一个极简主义目标教练。请将用户目标拆解为3个具体的里程碑。只返回JSON: {\"milestones\": [{\"title\": \"标题\"}]}";
                 
                 try {
-                    // 指数退避重试逻辑
-                    const fetchWithRetry = async (retries = 5, delay = 1000) => {
-                        try {
-                            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    contents: [{ parts: [{ text: `目标：${inputText}` }] }],
-                                    systemInstruction: { parts: [{ text: systemPrompt }] },
-                                    generationConfig: { responseMimeType: "application/json" }
-                                })
-                            });
-                            if (!res.ok) throw new Error();
-                            return res;
-                        } catch (e) {
-                            if (retries === 0) throw e;
-                            await new Promise(r => setTimeout(r, delay));
-                            return fetchWithRetry(retries - 1, delay * 2);
-                        }
-                    };
-
-                    const response = await fetchWithRetry();
-                    const result = await response.json();
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: `目标：${inputText}` }] }],
+                            systemInstruction: { parts: [{ text: systemPrompt }] },
+                            generationConfig: { responseMimeType: "application/json" }
+                        })
+                    });
+                    
+                    const result = await res.json();
                     const data = JSON.parse(result.candidates[0].content.parts[0].text);
                     
                     const newFlag = {
+                        id: Date.now().toString(),
                         title: inputText,
                         progress: 0,
                         steps: data.milestones.map(m => ({ title: m.title, done: false })),
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        uid: user.uid,
-                        userName: `用户_${user.uid.slice(0, 4)}`
+                        createdAt: firebaseConfig ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString(),
+                        uid: user?.uid || 'local',
+                        userName: `用户_${(user?.uid || 'local').slice(0, 4)}`
                     };
 
-                    // 保存到私有云端
-                    await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags').add(newFlag);
-                    // 同步到广场
-                    await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sharedFlags').add(newFlag);
+                    if (firebaseConfig) {
+                        const db = firebase.firestore();
+                        await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags').add(newFlag);
+                        await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sharedFlags').add(newFlag);
+                    } else {
+                        setMyFlags([newFlag, ...myFlags]);
+                    }
                     
                     setIsCreating(false);
                     setInputText('');
                 } catch (err) {
                     console.error(err);
-                    alert("同步失败，请重试");
+                    alert("AI 暂时无法连接，请稍后再试");
                 } finally { setIsLoading(false); }
             };
 
@@ -148,33 +163,43 @@
                 newSteps[stepIndex].done = !newSteps[stepIndex].done;
                 const progress = Math.round((newSteps.filter(s => s.done).length / newSteps.length) * 100);
                 
-                await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags').doc(flagId).update({
-                    steps: newSteps,
-                    progress: progress
-                });
-            };
-
-            const deleteFlag = async (id) => {
-                if(confirm("确定要删除吗？数据将从云端移除。")) {
-                    await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags').doc(id).delete();
+                if (firebaseConfig) {
+                    const db = firebase.firestore();
+                    await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags').doc(flagId).update({
+                        steps: newSteps,
+                        progress: progress
+                    });
+                } else {
+                    setMyFlags(myFlags.map(f => f.id === flagId ? { ...f, steps: newSteps, progress } : f));
                 }
             };
 
-            if (!user) return <div className="h-screen flex items-center justify-center text-slate-400">正在连接云端...</div>;
+            const deleteFlag = async (id) => {
+                if(confirm("确定要删除吗？")) {
+                    if (firebaseConfig) {
+                        const db = firebase.firestore();
+                        await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags').doc(id).delete();
+                    } else {
+                        setMyFlags(myFlags.filter(f => f.id !== id));
+                    }
+                }
+            };
+
+            if (!user) return <div className="h-screen flex items-center justify-center text-slate-400">正在初始化...</div>;
 
             return (
                 <div className="min-h-screen flex flex-col bg-[#F8FAFC]">
-                    {/* Header */}
                     <header className="fixed top-0 left-0 right-0 glass-card z-40 px-6 pb-3 pt-[calc(var(--safe-top)+1rem)] border-b border-slate-100">
                         <div className="flex justify-between items-end">
                             <div>
                                 <h1 className="text-3xl font-black tracking-tighter text-slate-900">FLAG</h1>
-                                <p className="text-[10px] font-bold text-green-500 tracking-widest uppercase">● 云端同步已就绪</p>
+                                <p className={`text-[10px] font-bold tracking-widest uppercase ${firebaseConfig ? 'text-green-500' : 'text-orange-400'}`}>
+                                    ● {firebaseConfig ? '云端已连接' : '本地模式运行'}
+                                </p>
                             </div>
                         </div>
                     </header>
 
-                    {/* Content */}
                     <main className="flex-grow safe-pt safe-pb px-5">
                         {activeTab === 'home' ? (
                             <div className="space-y-5">
@@ -211,6 +236,7 @@
                         ) : (
                             <div className="space-y-4 animate-fade">
                                 <h2 className="text-sm font-bold text-slate-400 mb-4 px-2">发现广场</h2>
+                                {!firebaseConfig && <p className="text-center text-xs text-slate-300">广场需要云端配置方可查看</p>}
                                 {publicFlags.map(p => (
                                     <div key={p.id} className="bg-white p-5 rounded-2xl border border-slate-50 flex items-center justify-between">
                                         <div>
@@ -219,7 +245,6 @@
                                         </div>
                                         <div className="text-right">
                                             <div className="text-xs font-black text-red-500">{p.progress}%</div>
-                                            <div className="text-[10px] text-slate-300">完成度</div>
                                         </div>
                                     </div>
                                 ))}
@@ -227,7 +252,6 @@
                         )}
                     </main>
 
-                    {/* Create Modal */}
                     {isCreating && (
                         <div className="fixed inset-0 z-[60] flex items-end justify-center p-4">
                             <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !isLoading && setIsCreating(false)}></div>
@@ -238,7 +262,7 @@
                                     value={inputText}
                                     onChange={(e) => setInputText(e.target.value)}
                                     placeholder="输入你的宏大目标..."
-                                    className="w-full h-32 p-5 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-red-400 outline-none text-lg resize-none"
+                                    className="w-full h-32 p-5 bg-slate-50 rounded-2xl border-none outline-none text-lg resize-none"
                                 />
                                 <button 
                                     onClick={handleAISplit}
@@ -251,11 +275,10 @@
                         </div>
                     )}
 
-                    {/* Bottom Nav */}
                     <nav className="fixed bottom-0 left-0 right-0 glass-card border-t border-slate-100 px-10 py-4 pb-[calc(var(--safe-bottom)+1rem)] flex justify-between items-center z-50">
-                        <button onClick={() => setActiveTab('home')} className={activeTab === 'home' ? 'text-red-500 scale-110' : 'text-slate-300'}>首页</button>
+                        <button onClick={() => setActiveTab('home')} className={activeTab === 'home' ? 'text-red-500 scale-110' : 'text-slate-300 font-bold'}>首页</button>
                         <button onClick={() => setIsCreating(true)} className="flag-gradient w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-xl -mt-10 border-4 border-white active:scale-90 transition-all font-bold text-2xl">+</button>
-                        <button onClick={() => setActiveTab('discover')} className={activeTab === 'discover' ? 'text-red-500 scale-110' : 'text-slate-300'}>广场</button>
+                        <button onClick={() => setActiveTab('discover')} className={activeTab === 'discover' ? 'text-red-500 scale-110' : 'text-slate-300 font-bold'}>广场</button>
                     </nav>
                 </div>
             );

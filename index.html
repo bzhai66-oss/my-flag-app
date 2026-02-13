@@ -55,6 +55,7 @@
         function App() {
             const [user, setUser] = useState(null);
             const [authLoaded, setAuthLoaded] = useState(false);
+            const [demoMode, setDemoMode] = useState(false); // 强制 Demo 登录状态
 
             useEffect(() => {
                 const ready = initFirebase();
@@ -69,17 +70,29 @@
                 }
             }, []);
 
+            // 登出函数
+            const handleSignOut = () => {
+                if (auth) auth.signOut();
+                setDemoMode(false);
+                setUser(null);
+            };
+
             if (!authLoaded) return (
                 <div className="h-screen w-screen flex items-center justify-center bg-white text-red-500">
                     <div className="w-8 h-8 border-4 border-current border-t-transparent rounded-full animate-spin"></div>
                 </div>
             );
 
-            return user ? <MainApp user={user} /> : <LoginScreen />;
+            // 只要 Firebase 有用户，或者处于 Demo 成功模式，就进入主页
+            if (user || demoMode) {
+                return <MainApp user={user || { uid: 'demo-user-id' }} onSignOut={handleSignOut} />;
+            }
+
+            return <LoginScreen onLoginSuccess={() => setDemoMode(true)} />;
         }
 
-        // --- 演示版登录组件 (含模拟逻辑) ---
-        function LoginScreen() {
+        // --- 演示版登录组件 ---
+        function LoginScreen({ onLoginSuccess }) {
             const [mode, setMode] = useState('login'); 
             const [email, setEmail] = useState('');
             const [password, setPassword] = useState('');
@@ -87,23 +100,25 @@
 
             const performMockLogin = async () => {
                 setIsBusy(true);
-                // 模拟网络请求延迟：2秒
+                // 1. 模拟网络请求延迟：2秒
                 await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                // 2. 尝试后台静默登录（为了维持数据库连接）
                 try {
                     if (auth) {
-                        // 使用 Firebase 匿名登录来维持 Session
                         await auth.signInAnonymously();
                     }
                 } catch (e) {
-                    console.error("Auth Error:", e);
-                } finally {
-                    setIsBusy(false);
+                    console.warn("Firebase Auth Error (Safe to ignore in demo):", e);
                 }
+                
+                // 3. 核心：强制触发布局切换到主页
+                onLoginSuccess();
+                setIsBusy(false);
             };
 
             const handleAuth = (e) => {
                 e.preventDefault();
-                if (!email || !password) return;
                 performMockLogin();
             };
 
@@ -178,7 +193,7 @@
         }
 
         // --- 主应用逻辑 ---
-        function MainApp({ user }) {
+        function MainApp({ user, onSignOut }) {
             const [view, setView] = useState('home'); 
             const [isCreating, setIsCreating] = useState(false);
             const [inputText, setInputText] = useState('');
@@ -189,9 +204,8 @@
             const userName = useMemo(() => `Flag_User_${user.uid.slice(-4)}`, [user]);
 
             useEffect(() => {
-                if (!db) return;
+                if (!db || !user.uid) return;
                 const unsub1 = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags')
-                    .orderBy('createdAt', 'desc')
                     .onSnapshot(s => setMyFlags(s.docs.map(d => ({ id: d.id, ...d.data() }))), e => console.log(e));
                 
                 const unsub2 = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sharedFlags')
@@ -204,8 +218,9 @@
                 if (!inputText.trim()) return;
                 setIsLoading(true);
                 const apiKey = ""; 
-                const systemPrompt = `你是一个顶级目标达成教练。请将用户目标拆解为3个极简阶段。JSON格式: {"milestones": [{"title": "标题", "tip": "建议"}]}`;
+                const systemPrompt = `你是一个顶级目标达成教练。请将用户目标拆解为3个极简阶段。JSON格式: {"milestones": [{"title": "阶段1", "tip": "具体建议"}]}`;
                 let milestones = [{ title: "启动准备", tip: "收集必要资源" }, { title: "核心攻坚", tip: "专注关键环节" }, { title: "成果巩固", tip: "质量检查" }];
+                
                 try {
                     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
                         method: 'POST',
@@ -222,6 +237,7 @@
                         milestones = aiData.milestones;
                     }
                 } catch (err) {}
+
                 const newFlag = {
                     title: inputText,
                     progress: 0,
@@ -230,9 +246,15 @@
                     userName: userName,
                     createdAt: firebase.firestore.FieldValue.serverTimestamp()
                 };
+
                 try {
-                    const ref = await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags').add(newFlag);
-                    await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sharedFlags').doc(ref.id).set(newFlag);
+                    if (db) {
+                        const ref = await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags').add(newFlag);
+                        await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sharedFlags').doc(ref.id).set(newFlag);
+                    } else {
+                        // 如果没有DB，本地模拟增加
+                        setMyFlags([{ id: Date.now(), ...newFlag }, ...myFlags]);
+                    }
                     setIsCreating(false);
                     setInputText('');
                 } catch (e) {}
@@ -245,17 +267,22 @@
                 const newSteps = flag.steps.map((s, i) => i === idx ? { ...s, done: !s.done } : s);
                 const progress = Math.round((newSteps.filter(s => s.done).length / newSteps.length) * 100);
                 if (newSteps[idx].done) confetti({ particleCount: 30, spread: 60, origin: { y: 0.8 } });
-                const batch = db.batch();
-                batch.update(db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags').doc(flagId), { steps: newSteps, progress });
-                batch.update(db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sharedFlags').doc(flagId), { steps: newSteps, progress });
-                await batch.commit();
+                
+                if (db) {
+                    const batch = db.batch();
+                    batch.update(db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags').doc(flagId), { steps: newSteps, progress });
+                    batch.update(db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sharedFlags').doc(flagId), { steps: newSteps, progress });
+                    await batch.commit();
+                } else {
+                    setMyFlags(myFlags.map(f => f.id === flagId ? { ...f, steps: newSteps, progress } : f));
+                }
             };
 
             return (
                 <div className="h-screen w-screen flex flex-col bg-[#F8F9FB] overflow-hidden">
                     <header className="shrink-0 glass-header px-6 pb-4 pt-[var(--safe-top)] border-b border-slate-100 z-20 flex justify-between items-end h-24">
                         <h1 className="text-2xl font-black tracking-tighter">{view === 'home' ? 'MY FLAGS' : '广场'}</h1>
-                        <button onClick={() => auth.signOut()} className="text-[10px] font-bold text-slate-300 uppercase tracking-widest border border-slate-100 px-3 py-1 rounded-full">Sign Out</button>
+                        <button onClick={onSignOut} className="text-[10px] font-bold text-slate-300 uppercase tracking-widest border border-slate-100 px-3 py-1 rounded-full">Sign Out</button>
                     </header>
                     <main className="flex-grow overflow-y-auto no-scrollbar px-6 py-6 pb-32">
                         {view === 'home' ? (

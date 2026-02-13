@@ -93,8 +93,7 @@
                 if (!inputText.trim()) return;
                 setIsLoading(true);
                 
-                const apiKey = ""; // 运行时环境提供
-                // --- 优化的提示词：要求更多元的信息 ---
+                const apiKey = ""; 
                 const systemPrompt = `你是一个顶级目标达成教练。
                 请将用户目标拆解为3个极简阶段。
                 每个阶段需要：1.标题(5字内) 2.教练贴士(核心行动点，15字内)。
@@ -148,17 +147,35 @@
             const toggleStep = async (flagId, idx) => {
                 const flag = myFlags.find(f => f.id === flagId);
                 if (!flag) return;
-                const newSteps = [...flag.steps];
-                newSteps[idx].done = !newSteps[idx].done;
+                
+                // 1. 深度拷贝步骤并切换状态
+                const newSteps = flag.steps.map((s, i) => i === idx ? { ...s, done: !s.done } : s);
+                
+                // 2. 计算新进度
                 const progress = Math.round((newSteps.filter(s => s.done).length / newSteps.length) * 100);
                 
-                if (!newSteps[idx].done === false) confetti({ particleCount: 40, spread: 50, origin: { y: 0.8 }, colors: ['#FF3B30'] });
+                // 3. 只有在变为完成时触发特效
+                if (newSteps[idx].done) {
+                    confetti({ particleCount: 40, spread: 50, origin: { y: 0.8 }, colors: ['#FF3B30'] });
+                }
 
+                // 4. 更新本地状态 (确保 UI 即时反馈)
+                setMyFlags(prev => prev.map(f => f.id === flagId ? { ...f, steps: newSteps, progress } : f));
+
+                // 5. 同步到 Firebase (个人空间 + 公共广场)
                 if (firebaseReady && user) {
-                    const batch = db.batch();
-                    batch.update(db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags').doc(flagId), { steps: newSteps, progress });
-                    batch.update(db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sharedFlags').doc(flagId), { steps: newSteps, progress });
-                    await batch.commit();
+                    try {
+                        const batch = db.batch();
+                        const userDocRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags').doc(flagId);
+                        const publicDocRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sharedFlags').doc(flagId);
+                        
+                        batch.update(userDocRef, { steps: newSteps, progress });
+                        batch.update(publicDocRef, { steps: newSteps, progress });
+                        
+                        await batch.commit();
+                    } catch (err) {
+                        console.error("Firebase Update Error:", err);
+                    }
                 }
             };
 
@@ -182,12 +199,12 @@
                                         <h2 className="text-xl font-bold mb-6 text-gray-800 leading-tight">{flag.title}</h2>
                                         <div className="space-y-4 mb-8">
                                             {flag.steps.map((step, i) => (
-                                                <div key={i} onClick={() => toggleStep(flag.id, i)} className="flex gap-4 group cursor-pointer">
-                                                    <div className={`shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${step.done ? 'bg-red-500 border-red-500' : 'border-gray-200'}`}>
+                                                <div key={i} onClick={() => toggleStep(flag.id, i)} className="flex gap-4 group cursor-pointer items-start">
+                                                    <div className={`shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all mt-0.5 ${step.done ? 'bg-red-500 border-red-500' : 'border-gray-200'}`}>
                                                         {step.done && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4"><path d="M20 6L9 17l-5-5"></path></svg>}
                                                     </div>
                                                     <div className="flex-grow">
-                                                        <p className={`font-bold text-sm ${step.done ? 'text-gray-300 line-through' : 'text-gray-700'}`}>{step.title}</p>
+                                                        <p className={`font-bold text-sm transition-all ${step.done ? 'text-gray-300 line-through' : 'text-gray-700'}`}>{step.title}</p>
                                                         {step.tip && !step.done && <p className="text-[11px] text-gray-400 mt-1 font-medium italic">💡 {step.tip}</p>}
                                                     </div>
                                                 </div>
@@ -195,7 +212,7 @@
                                         </div>
                                         <div className="flex items-center gap-4">
                                             <div className="flex-grow h-2 bg-gray-50 rounded-full overflow-hidden">
-                                                <div className="h-full flag-gradient transition-all duration-1000" style={{width: `${flag.progress}%`}}></div>
+                                                <div className="h-full flag-gradient transition-all duration-700 ease-out" style={{width: `${flag.progress}%`}}></div>
                                             </div>
                                             <span className="text-xs font-black text-gray-300 italic">{flag.progress}%</span>
                                         </div>
@@ -213,7 +230,7 @@
                                         <div className="text-right">
                                             <p className="text-lg font-black text-gray-900">{p.progress}%</p>
                                             <div className="w-10 h-1 bg-gray-100 rounded-full mt-1 overflow-hidden">
-                                                <div className="h-full bg-black" style={{width: `${p.progress}%`}}></div>
+                                                <div className="h-full bg-black transition-all duration-700" style={{width: `${p.progress}%`}}></div>
                                             </div>
                                         </div>
                                     </div>

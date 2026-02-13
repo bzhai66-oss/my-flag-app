@@ -45,7 +45,6 @@
         @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         .animate-item { animation: slideUp 0.5s cubic-bezier(0.25, 1, 0.5, 1) forwards; }
 
-        /* 隐藏滚动条但保持滚动 */
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
@@ -54,9 +53,9 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect } = React;
 
-        // --- 1. 云端初始化 (Firebase) ---
+        // --- 1. Firebase 初始化 (遵守三个强制规则) ---
         let db = null;
         let auth = null;
         let firebaseReady = false;
@@ -70,7 +69,7 @@
                 auth = firebase.auth();
                 firebaseReady = true;
             }
-        } catch (e) { console.warn("Cloud mode disabled: Config missing."); }
+        } catch (e) { console.warn("Firebase not available"); }
 
         function App() {
             const [user, setUser] = useState(null);
@@ -81,61 +80,48 @@
             const [myFlags, setMyFlags] = useState([]);
             const [publicFlags, setPublicFlags] = useState([]);
 
-            // 认证监听
+            // 规则 3: 优先处理 Auth
             useEffect(() => {
-                if (!firebaseReady) {
-                    setUser({ uid: 'local_user', displayName: '游客' });
-                    return;
-                }
-                const unsub = auth.onAuthStateChanged(async (u) => {
-                    if (!u) {
-                        if (typeof __initial_auth_token !== 'undefined') {
+                const initAuth = async () => {
+                    if (!firebaseReady) {
+                        setUser({ uid: 'local_user', displayName: '游客' });
+                        return;
+                    }
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                             await auth.signInWithCustomToken(__initial_auth_token);
                         } else {
                             await auth.signInAnonymously();
                         }
-                    } else {
-                        setUser(u);
-                    }
-                });
-                return unsub;
+                    } catch (err) { console.error("Auth Error", err); }
+                };
+                initAuth();
+                const unsub = auth.onAuthStateChanged(setUser);
+                return () => unsub();
             }, []);
 
-            // 数据同步 (本地 + 云端)
+            // 规则 1 & 2: 严格路径监听与简单查询
             useEffect(() => {
-                if (!user) return;
+                if (!user || !firebaseReady) return;
 
-                if (!firebaseReady) {
-                    const saved = localStorage.getItem('flag_local_v3');
-                    if (saved) setMyFlags(JSON.parse(saved));
-                    return;
-                }
-
-                // 监听我的 Flag
+                // 监听个人 Flags
                 const myUnsub = db.collection('artifacts').doc(appId)
                     .collection('users').doc(user.uid).collection('flags')
                     .onSnapshot(snap => {
                         setMyFlags(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                    });
+                    }, err => console.error("My Flags Sync Error", err));
 
-                // 监听广场 (公共)
+                // 监听公共广场
                 const pubUnsub = db.collection('artifacts').doc(appId)
                     .collection('public').doc('data').collection('sharedFlags')
                     .onSnapshot(snap => {
                         setPublicFlags(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                    });
+                    }, err => console.error("Public Flags Sync Error", err));
 
                 return () => { myUnsub(); pubUnsub(); };
             }, [user]);
 
-            // 本地存储备份
-            useEffect(() => {
-                if (!firebaseReady && myFlags.length > 0) {
-                    localStorage.setItem('flag_local_v3', JSON.stringify(myFlags));
-                }
-            }, [myFlags]);
-
-            // --- 2. 核心功能: AI 拆解 ---
+            // AI 拆解逻辑
             const handleAISplit = async () => {
                 if (!inputText.trim()) return;
                 setIsLoading(true);
@@ -163,42 +149,32 @@
                         steps: aiData.milestones.map(m => ({ title: m.title, done: false })),
                         uid: user.uid,
                         userName: `用户_${user.uid.slice(0, 4)}`,
-                        createdAt: firebaseReady ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
                     };
 
                     if (firebaseReady) {
+                        // 同时写入个人库和公共库
                         const ref = await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags').add(newFlag);
                         await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sharedFlags').doc(ref.id).set(newFlag);
-                    } else {
-                        setMyFlags([{ id: Date.now(), ...newFlag }, ...myFlags]);
                     }
                     
                     setIsCreating(false);
                     setInputText('');
                 } catch (err) {
-                    alert("AI 暂时休息，已为您生成基础步骤");
-                    const fallback = {
-                        title: inputText,
-                        progress: 0,
-                        steps: [{title: "确定方向", done: false}, {title: "开始执行", done: false}, {title: "达成目标", done: false}],
-                        uid: user.uid,
-                        userName: "本地用户",
-                        createdAt: new Date().toISOString()
-                    };
-                    setMyFlags([{ id: Date.now(), ...fallback }, ...myFlags]);
+                    console.error("Split error", err);
                     setIsCreating(false);
-                    setInputText('');
                 } finally { setIsLoading(false); }
             };
 
-            // --- 3. 互动功能: 打卡特效 ---
+            // --- 关键优化: 同时更新本地与广场的进度 ---
             const toggleStep = async (flagId, idx) => {
                 const flag = myFlags.find(f => f.id === flagId);
+                if (!flag) return;
+
                 const newSteps = [...flag.steps];
                 const wasDone = newSteps[idx].done;
                 newSteps[idx].done = !wasDone;
                 
-                // 触发烟花特效 (如果是勾选完成)
                 if (!wasDone) {
                     confetti({
                         particleCount: 100,
@@ -211,30 +187,32 @@
                 const progress = Math.round((newSteps.filter(s => s.done).length / newSteps.length) * 100);
                 
                 if (firebaseReady) {
-                    await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags').doc(flagId).update({
-                        steps: newSteps, progress
-                    });
-                    await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sharedFlags').doc(flagId).update({
-                        steps: newSteps, progress
-                    });
-                } else {
-                    setMyFlags(myFlags.map(f => f.id === flagId ? { ...f, steps: newSteps, progress } : f));
+                    const batch = db.batch();
+                    
+                    // 1. 更新个人文档
+                    const myRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags').doc(flagId);
+                    batch.update(myRef, { steps: newSteps, progress });
+                    
+                    // 2. 同步更新广场文档 (修复点)
+                    const pubRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sharedFlags').doc(flagId);
+                    batch.update(pubRef, { steps: newSteps, progress });
+                    
+                    await batch.commit();
                 }
             };
 
             const deleteFlag = async (id) => {
                 if (!window.confirm("确定要删除吗？")) return;
                 if (firebaseReady) {
-                    await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags').doc(id).delete();
-                    await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sharedFlags').doc(id).delete();
-                } else {
-                    setMyFlags(myFlags.filter(f => f.id !== id));
+                    const batch = db.batch();
+                    batch.delete(db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags').doc(id));
+                    batch.delete(db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sharedFlags').doc(id));
+                    await batch.commit();
                 }
             };
 
             return (
                 <div className="min-h-screen flex flex-col bg-[#FBFBFD]">
-                    {/* Header */}
                     <header className="fixed top-0 inset-x-0 glass-header z-30 px-6 pb-4 pt-[var(--safe-top)] border-b border-gray-100/50">
                         <div className="flex justify-between items-center">
                             <div className="flex items-center gap-2">
@@ -243,17 +221,16 @@
                                     {view === 'home' ? '我的 Flag' : '发现广场'}
                                 </h1>
                             </div>
-                            <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${firebaseReady ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'}`}>
-                                {firebaseReady ? 'Cloud ON' : 'Local'}
+                            <div className="px-3 py-1 bg-green-50 rounded-full">
+                                <span className="text-[10px] font-bold text-green-600 uppercase tracking-widest">Live Sync</span>
                             </div>
                         </div>
                     </header>
 
-                    {/* Main Content */}
                     <main className="px-5 safe-pt safe-pb flex-grow overflow-y-auto no-scrollbar">
                         {view === 'home' ? (
                             <div className="space-y-6">
-                                {myFlags.length === 0 && (
+                                {myFlags.length === 0 && !isLoading && (
                                     <div className="py-32 flex flex-col items-center justify-center opacity-30">
                                         <div className="text-7xl mb-6">🏜️</div>
                                         <p className="font-bold">立个 Flag，去征服它</p>
@@ -271,7 +248,7 @@
                                                     <div className={`w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all ${step.done ? 'bg-green-500 border-green-500' : 'border-gray-300'}`}>
                                                         {step.done && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4"><path d="M20 6L9 17l-5-5"></path></svg>}
                                                     </div>
-                                                    <span className={`text-sm font-bold ${step.done ? 'text-gray-300 line-through' : 'text-gray-700'}`}>{step.title}</span>
+                                                    <span className={`text-sm font-bold ${step.done ? 'text-gray-400 line-through' : 'text-gray-700'}`}>{step.title}</span>
                                                 </div>
                                             ))}
                                         </div>
@@ -286,14 +263,14 @@
                             <div className="space-y-4 animate-item">
                                 {publicFlags.length === 0 && <p className="text-center py-20 text-gray-400">广场暂时空无一人...</p>}
                                 {publicFlags.map(p => (
-                                    <div key={p.id} className="bg-white p-6 rounded-3xl card-shadow border border-gray-50 flex items-center justify-between">
+                                    <div key={p.id} className="bg-white p-6 rounded-3xl card-shadow border border-gray-50 flex items-center justify-between transition-all">
                                         <div>
                                             <p className="font-extrabold text-gray-800 text-lg">{p.title}</p>
                                             <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">By {p.userName}</p>
                                         </div>
                                         <div className="text-right">
-                                            <div className="text-xl font-black text-red-500">{p.progress}%</div>
-                                            <div className="text-[8px] text-gray-300 font-black uppercase">Success</div>
+                                            <div className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-br from-red-500 to-pink-500">{p.progress}%</div>
+                                            <div className="text-[8px] text-gray-300 font-black uppercase tracking-tighter">Completion</div>
                                         </div>
                                     </div>
                                 ))}
@@ -301,7 +278,6 @@
                         )}
                     </main>
 
-                    {/* Footer Nav */}
                     <nav className="fixed bottom-0 inset-x-0 glass-header border-t border-gray-100/50 flex justify-around items-center px-10 pb-[calc(var(--safe-bottom)+0.5rem)] pt-3 z-40">
                         <button onClick={() => setView('home')} className={`flex flex-col items-center gap-1 transition-all ${view === 'home' ? 'text-red-500' : 'text-gray-300'}`}>
                             <span className="text-xl">🏠</span>
@@ -316,7 +292,6 @@
                         </button>
                     </nav>
 
-                    {/* Create Modal */}
                     {isCreating && (
                         <div className="fixed inset-0 z-50 flex items-end">
                             <div className="absolute inset-0 bg-black/40 backdrop-blur-md" onClick={() => !isLoading && setIsCreating(false)}></div>
@@ -324,7 +299,7 @@
                                 <div className="w-12 h-1.5 bg-gray-100 rounded-full mx-auto mb-8"></div>
                                 <h3 className="text-3xl font-black mb-6 tracking-tighter">下一个挑战是？</h3>
                                 <textarea autoFocus value={inputText} onChange={(e) => setInputText(e.target.value)} placeholder="输入目标..." className="w-full text-2xl font-bold border-none focus:ring-0 placeholder:text-gray-200 resize-none mb-8" rows="3"/>
-                                <button onClick={handleAISplit} disabled={isLoading || !inputText} className="w-full py-5 rounded-3xl bg-black text-white font-black tracking-widest uppercase disabled:bg-gray-100 flex items-center justify-center gap-3">
+                                <button onClick={handleAISplit} disabled={isLoading || !inputText} className="w-full py-5 rounded-3xl bg-black text-white font-black tracking-widest uppercase disabled:bg-gray-100 flex items-center justify-center gap-3 transition-all">
                                     {isLoading ? <div className="w-5 h-5 border-4 border-white/30 border-t-white rounded-full animate-spin"></div> : "开始拆解"}
                                 </button>
                             </div>

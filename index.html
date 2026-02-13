@@ -91,8 +91,7 @@
                 setIsBusy(true);
                 try {
                     if (auth) {
-                        // 生产环境会使用 createUserWithEmailAndPassword，这里我们为了演示环境稳定继续使用匿名登录跳转
-                        // 在真实 App 中，这里会替换为账号密码校验逻辑
+                        // 模拟登录逻辑
                         await auth.signInAnonymously();
                     }
                 } catch (e) {
@@ -104,7 +103,6 @@
 
             const handleSocialLogin = async (type) => {
                 setIsBusy(true);
-                // 模拟跳转
                 setTimeout(async () => {
                     await auth.signInAnonymously();
                     setIsBusy(false);
@@ -118,7 +116,7 @@
                     <div className="w-full max-w-sm bg-white rounded-[2.5rem] p-8 card-shadow border border-white/50">
                         <div className="text-center mb-8">
                             <h2 className="text-2xl font-black text-slate-900">{mode === 'login' ? '欢迎回来' : '开启挑战'}</h2>
-                            <p className="text-slate-400 text-xs mt-1 font-bold uppercase tracking-widest">立下 Flag，AI 助你达成</p>
+                            <p className="text-slate-400 text-xs mt-1 font-bold uppercase tracking-widest">立个 Flag，万一实现了呢</p>
                         </div>
 
                         <form onSubmit={handleAuth} className="space-y-4">
@@ -177,7 +175,7 @@
             );
         }
 
-        // --- 主应用逻辑 (保持不变，已修复 Tip 显示) ---
+        // --- 主应用逻辑 ---
         function MainApp({ user }) {
             const [view, setView] = useState('home'); 
             const [isCreating, setIsCreating] = useState(false);
@@ -260,6 +258,12 @@
                     <main className="flex-grow overflow-y-auto no-scrollbar px-6 py-6 pb-32">
                         {view === 'home' ? (
                             <div className="space-y-6">
+                                {myFlags.length === 0 && (
+                                    <div className="text-center py-20 opacity-30 select-none">
+                                        <div className="text-6xl mb-4">⛳️</div>
+                                        <p className="font-bold text-slate-400 uppercase tracking-[0.2em] text-xs">立个 Flag，万一实现了呢</p>
+                                    </div>
+                                )}
                                 {myFlags.map(flag => (
                                     <div key={flag.id} className="bg-white rounded-[2.5rem] p-7 card-shadow border border-slate-50">
                                         <h2 className="text-xl font-black mb-6 text-slate-800">{flag.title}</h2>
@@ -314,8 +318,9 @@
                             <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={() => !isLoading && setIsCreating(false)}></div>
                             <div className="relative w-full bg-white rounded-t-[3rem] p-9 pb-[calc(var(--safe-bottom)+2rem)] modal-enter shadow-2xl">
                                 <div className="w-12 h-1.5 bg-slate-100 rounded-full mx-auto mb-8"></div>
-                                <h3 className="text-2xl font-black mb-6">立下 Flag</h3>
-                                <textarea autoFocus value={inputText} onChange={(e) => setInputText(e.target.value)} placeholder="例如：三个月内学会潜水" className="w-full text-lg font-bold border-none focus:ring-0 placeholder:text-slate-200 resize-none mb-8 h-32 bg-slate-50 rounded-3xl p-6"/>
+                                <h3 className="text-2xl font-black mb-1">新的挑战</h3>
+                                <p className="text-slate-400 text-xs mb-6 font-bold uppercase tracking-widest">立个 Flag，万一实现了呢</p>
+                                <textarea autoFocus value={inputText} onChange={(e) => setInputText(e.target.value)} placeholder="例如：一个月后去大理旅居" className="w-full text-lg font-bold border-none focus:ring-0 placeholder:text-slate-200 resize-none mb-8 h-32 bg-slate-50 rounded-3xl p-6"/>
                                 <button onClick={handleAISplit} disabled={isLoading || !inputText} className="w-full py-5 rounded-2xl bg-black text-white font-black uppercase disabled:bg-slate-100 transition-all flex justify-center items-center gap-3">
                                     {isLoading ? "规划中..." : "开始规划"}
                                 </button>

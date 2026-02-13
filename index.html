@@ -10,287 +10,253 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
         :root { --safe-top: env(safe-area-inset-top, 20px); --safe-bottom: env(safe-area-inset-bottom, 20px); }
-        body { font-family: 'Inter', -apple-system, sans-serif; background-color: #F8F9FB; color: #1D1D1F; overflow: hidden; }
+        body { font-family: 'Inter', -apple-system, sans-serif; background-color: #F8F9FB; color: #1D1D1F; overflow: hidden; margin: 0; }
         
-        /* 登录页背景与卡片样式 */
         .login-bg { background: #FDF4F4; }
-        .login-card { 
-            background: white; 
-            border-radius: 3rem; 
-            box-shadow: 0 20px 50px rgba(255, 59, 48, 0.05);
-        }
-        
         .flag-gradient { background: linear-gradient(135deg, #FF4D4D 0%, #F53D3D 100%); }
-        .success-gradient { background: linear-gradient(135deg, #34C759 0%, #30B0C7 100%); }
-        .glass-header { background: rgba(255, 255, 255, 0.8); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); }
-        .card-shadow { box-shadow: 0 10px 40px rgba(0, 0, 0, 0.02); }
+        .glass-header { background: rgba(255, 255, 255, 0.9); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); }
         
-        .input-field {
-            background-color: #F7F8FA;
-            border: none;
-            border-radius: 1.25rem;
-            padding: 1.25rem 1.5rem;
-            width: 100%;
-            font-weight: 600;
-            color: #1D1D1F;
-            transition: all 0.2s;
+        /* 广场卡片还原图3 */
+        .square-card {
+            background: white;
+            border-radius: 1.5rem;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.02);
         }
-        .input-field::placeholder { color: #C7C7CC; }
-        .input-field:focus { background-color: #F2F2F7; outline: none; box-shadow: 0 0 0 2px rgba(255, 59, 48, 0.1); }
-
-        .social-btn {
-            background: #F7F8FA;
-            border-radius: 1.25rem;
-            padding: 0.85rem;
+        .square-tag {
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 0.5rem;
-            font-size: 0.9rem;
-            font-weight: 700;
-            color: #3A3A3C;
-            flex: 1;
+            font-size: 10px;
+            color: white;
+            margin-right: 12px;
+        }
+
+        /* 输入法避让：确保弹窗位置靠上 */
+        .input-modal-content {
+            position: absolute;
+            top: 15%; /* 显著上移，避开键盘 */
+            left: 5%;
+            right: 5%;
+            background: white;
+            border-radius: 2.5rem;
+            padding: 2rem;
+            box-shadow: 0 30px 60px rgba(0,0,0,0.15);
+        }
+
+        /* 进度数字样式 */
+        .progress-num {
+            font-size: 1.25rem;
+            font-weight: 900;
+            font-style: italic;
+            color: #FF4D4D;
         }
 
         .no-scrollbar::-webkit-scrollbar { display: none; }
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        .animate-slide-up { animation: slideUp 0.3s ease-out; }
         
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .animate-fade-in { animation: fadeIn 0.6s ease-out forwards; }
+        /* 引导对话气泡 */
+        .ai-bubble {
+            background: #F2F2F7;
+            padding: 1rem;
+            border-radius: 1.25rem;
+            border-bottom-left-radius: 0.25rem;
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #3A3A3C;
+        }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
-
-        // --- Firebase 辅助 (演示版逻辑) ---
-        let auth = null;
-        const initFirebase = () => {
-            if (typeof firebase !== 'undefined' && typeof __firebase_config !== 'undefined') {
-                try {
-                    const config = JSON.parse(__firebase_config);
-                    if (!firebase.apps.length) firebase.initializeApp(config);
-                    auth = firebase.auth();
-                    return true;
-                } catch (e) { console.error(e); }
-            }
-            return false;
-        };
+        const { useState, useEffect, useRef } = React;
 
         function App() {
             const [user, setUser] = useState(null);
-            const [authLoaded, setAuthLoaded] = useState(false);
-            const [demoMode, setDemoMode] = useState(false);
+            const [view, setView] = useState('login'); // login, home, discover
+            const [isCreating, setIsCreating] = useState(false);
 
-            useEffect(() => {
-                const ready = initFirebase();
-                if (ready) {
-                    const unsubscribe = auth.onAuthStateChanged((u) => {
-                        setUser(u);
-                        setAuthLoaded(true);
-                    });
-                    return () => unsubscribe();
-                } else {
-                    setAuthLoaded(true);
-                }
-            }, []);
-
-            const handleSignOut = () => {
-                if (auth) auth.signOut();
-                setDemoMode(false);
-                setUser(null);
-            };
-
-            if (!authLoaded) return (
-                <div className="h-screen w-screen flex items-center justify-center bg-white">
-                    <div className="w-8 h-8 border-4 border-red-500 border-t-transparent rounded-full animate-spin"></div>
-                </div>
-            );
-
-            if (user || demoMode) {
-                return <MainApp user={user || { uid: 'demo-user', displayName: '演示用户' }} onSignOut={handleSignOut} />;
-            }
-
-            return <LoginScreen onLoginSuccess={() => setDemoMode(true)} />;
+            if (view === 'login') return <LoginScreen onLogin={() => setView('home')} />;
+            return <MainContainer view={view} setView={setView} isCreating={isCreating} setIsCreating={setIsCreating} />;
         }
 
-        // --- 登录屏 (完美还原图片设计) ---
-        function LoginScreen({ onLoginSuccess }) {
-            const [isBusy, setIsBusy] = useState(false);
-            
-            const handleLogin = async (e) => {
-                e.preventDefault();
-                setIsBusy(true);
-                await new Promise(r => setTimeout(r, 1500));
-                onLoginSuccess();
-                setIsBusy(false);
-            };
-
+        function LoginScreen({ onLogin }) {
             return (
                 <div className="h-screen w-screen login-bg flex flex-col items-center justify-center px-6">
-                    {/* 顶部 Logo */}
-                    <div className="w-20 h-20 flag-gradient rounded-[2.2rem] shadow-xl flex items-center justify-center text-white text-4xl font-black italic mb-10 transform -rotate-6 animate-fade-in">
-                        F
-                    </div>
-                    
-                    {/* 登录卡片 */}
-                    <div className="w-full max-w-sm login-card p-10 animate-fade-in" style={{animationDelay: '0.1s'}}>
+                    <div className="w-20 h-20 flag-gradient rounded-[2.2rem] shadow-xl flex items-center justify-center text-white text-4xl font-black italic mb-10 transform -rotate-6">F</div>
+                    <div className="w-full max-w-sm bg-white rounded-[3rem] p-10 shadow-2xl">
                         <div className="text-center mb-10">
-                            <h1 className="text-3xl font-black text-[#1D1D1F] mb-2 tracking-tight">欢迎回来</h1>
-                            <p className="text-slate-400 font-bold text-sm tracking-wide">立个 FLAG，万一实现了呢</p>
+                            <h1 className="text-3xl font-black text-[#1D1D1F] mb-2">欢迎回来</h1>
+                            <p className="text-slate-400 font-bold text-sm">立个 FLAG，万一实现了呢</p>
                         </div>
-
-                        <form onSubmit={handleLogin} className="space-y-4">
-                            <input type="text" placeholder="邮箱/手机号" className="input-field" required />
-                            <input type="password" placeholder="密码" className="input-field" required />
-                            
-                            <button 
-                                type="submit" 
-                                disabled={isBusy}
-                                className="w-full py-5 mt-4 flag-gradient text-white rounded-[1.5rem] font-black shadow-lg shadow-red-200 active:scale-95 transition-all flex justify-center items-center h-[64px]"
-                            >
-                                {isBusy ? <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div> : "登录"}
-                            </button>
-                        </form>
-
-                        {/* 分割线 */}
-                        <div className="flex items-center my-8 px-4">
-                            <div className="flex-grow h-[1px] bg-slate-100"></div>
-                            <span className="mx-4 text-[10px] font-black text-slate-300 uppercase tracking-widest">或者</span>
-                            <div className="flex-grow h-[1px] bg-slate-100"></div>
+                        <div className="space-y-4">
+                            <input type="text" placeholder="邮箱/手机号" className="w-full bg-[#F7F8FA] border-none rounded-2xl p-5 font-bold outline-none" />
+                            <input type="password" placeholder="密码" className="w-full bg-[#F7F8FA] border-none rounded-2xl p-5 font-bold outline-none" />
+                            <button onClick={onLogin} className="w-full py-5 flag-gradient text-white rounded-[1.5rem] font-black shadow-lg">登录</button>
                         </div>
-
-                        {/* 第三方登录 */}
+                        <div className="flex items-center my-8"><div className="flex-grow h-[1px] bg-slate-100"></div><span className="mx-4 text-[10px] font-black text-slate-300">或者</span><div className="flex-grow h-[1px] bg-slate-100"></div></div>
                         <div className="flex gap-4">
-                            <button onClick={() => onLoginSuccess()} className="social-btn">
-                                <img src="https://img.icons8.com/color/48/weixing.png" className="w-5 h-5 opacity-80" alt="WeChat"/>
-                                微信
-                            </button>
-                            <button onClick={() => onLoginSuccess()} className="social-btn">
-                                <img src="https://img.icons8.com/color/48/google-logo.png" className="w-5 h-5 opacity-80" alt="Google"/>
-                                Google
-                            </button>
+                            <button onClick={onLogin} className="flex-1 bg-[#F7F8FA] py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2">微信</button>
+                            <button onClick={onLogin} className="flex-1 bg-[#F7F8FA] py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2">Google</button>
                         </div>
-                    </div>
-
-                    {/* 底部注册提示 */}
-                    <div className="mt-10 animate-fade-in" style={{animationDelay: '0.2s'}}>
-                        <p className="text-slate-400 font-bold text-sm">
-                            还没有账号？ <span className="text-red-500 ml-1 cursor-pointer">点击注册</span>
-                        </p>
                     </div>
                 </div>
             );
         }
 
-        // --- 主应用逻辑 (保持之前的优化布局) ---
-        function MainApp({ user, onSignOut }) {
-            const [view, setView] = useState('home');
-            const [isCreating, setIsCreating] = useState(false);
-            const [inputText, setInputText] = useState('');
-            const [isLoading, setIsLoading] = useState(false);
-            
-            // 预设数据
+        function MainContainer({ view, setView, isCreating, setIsCreating }) {
             const [myFlags, setMyFlags] = useState([
-                { id: '1', title: '学会使用 React Hooks', progress: 100, steps: [{title:'掌握 useState', done:true}, {title:'掌握 useEffect', done:true}], createdAt: Date.now() },
-                { id: '2', title: '三个月学会游泳', progress: 30, steps: [{title:'购买装备', done:true}, {title:'练习换气', done:false}, {title:'自由泳50米', done:false}], createdAt: Date.now() }
+                { id: 1, title: '学习法式烹饪', progress: 90, sub: '小厨娘', icon: '🍳', color: '#FF9500' },
+                { id: 2, title: '备战雅思考试 8.0', progress: 45, sub: 'ALEX_W', icon: '📚', color: '#007AFF' }
             ]);
 
-            const handleAISplit = async () => {
-                if (!inputText.trim()) return;
-                setIsLoading(true);
-                await new Promise(r => setTimeout(r, 1500));
-                const newFlag = {
-                    id: Date.now().toString(),
-                    title: inputText,
-                    progress: 0,
-                    steps: [{ title: "初始阶段", done: false }, { title: "核心突破", done: false }, { title: "达成目标", done: false }],
-                    createdAt: Date.now()
-                };
-                setMyFlags([newFlag, ...myFlags]);
-                setIsCreating(false);
-                setInputText('');
-                setIsLoading(false);
-            };
+            const publicFlags = [
+                { id: 101, title: '挑战30天不喝奶茶', progress: 85, sub: '奶茶深度患者', icon: '🥤', color: '#FF3B30' },
+                { id: 102, title: '备战雅思考试 8.0', progress: 45, sub: 'ALEX_W', icon: '📚', color: '#007AFF' },
+                { id: 103, title: '打造一个开源 UI 库', progress: 12, sub: '极客张', icon: '💻', color: '#5856D6' },
+                { id: 104, title: '学习法式烹饪', progress: 90, sub: '小厨娘', icon: '🍳', color: '#FF9500' }
+            ];
 
             return (
-                <div className="h-screen w-screen flex flex-col bg-[#F8F9FB] overflow-hidden">
-                    <header className="shrink-0 glass-header px-6 pb-4 pt-[var(--safe-top)] border-b border-slate-100 z-20 flex justify-between items-end h-24">
-                        <h1 className="text-2xl font-black tracking-tighter uppercase">{view === 'home' ? 'Flags' : 'Square'}</h1>
-                        <button onClick={onSignOut} className="text-[10px] font-bold text-slate-300 uppercase tracking-widest border border-slate-100 px-3 py-1 rounded-full active:bg-slate-50">Logout</button>
+                <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#F8F9FB]">
+                    <header className="shrink-0 glass-header px-6 pb-4 pt-[var(--safe-top)] flex justify-between items-end h-24">
+                        <h1 className="text-2xl font-black tracking-tighter uppercase">{view === 'home' ? 'My Flags' : 'Square'}</h1>
+                        <div className="text-[10px] font-black text-slate-200 uppercase tracking-widest mb-1">Status: Active</div>
                     </header>
 
-                    <main className="flex-grow overflow-y-auto no-scrollbar px-6 py-6 pb-32">
+                    <main className="flex-grow overflow-y-auto no-scrollbar px-5 py-4 pb-32">
                         {view === 'home' ? (
-                            <div className="space-y-6">
-                                {myFlags.map(flag => (
-                                    <div key={flag.id} className="bg-white rounded-[2.5rem] p-7 card-shadow border border-slate-50">
-                                        <h2 className={`text-xl font-black mb-6 ${flag.progress === 100 ? 'text-green-600' : 'text-slate-800'}`}>{flag.title}</h2>
-                                        <div className="space-y-4 mb-8">
-                                            {flag.steps.map((s, i) => (
-                                                <div key={i} className="flex gap-4 items-center">
-                                                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${s.done ? 'bg-red-500 border-red-500' : 'border-slate-100 bg-slate-50'}`}>
-                                                        {s.done && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4"><path d="M20 6L9 17l-5-5"></path></svg>}
-                                                    </div>
-                                                    <p className={`font-bold text-sm ${s.done ? 'text-slate-300 line-through' : 'text-slate-700'}`}>{s.title}</p>
-                                                </div>
-                                            ))}
-                                        </div>
-                                        <div className="flex items-center gap-4">
-                                            <div className="flex-grow h-2 bg-slate-50 rounded-full overflow-hidden">
-                                                <div className={`h-full transition-all duration-700 ${flag.progress === 100 ? 'success-gradient' : 'flag-gradient'}`} style={{width: `${flag.progress}%`}}></div>
+                            <div className="space-y-4">
+                                {myFlags.map(f => (
+                                    <div key={f.id} className="square-card">
+                                        <div className="flex items-center">
+                                            <div className="square-tag" style={{backgroundColor: f.color}}>{f.icon}</div>
+                                            <div>
+                                                <div className="font-black text-slate-800 text-sm">{f.title}</div>
+                                                <div className="text-[10px] font-bold text-slate-300 uppercase tracking-tight">{f.sub}</div>
                                             </div>
-                                            <span className="text-[10px] font-black w-8 text-right text-slate-400">{flag.progress}%</span>
                                         </div>
+                                        <div className="progress-num">{f.progress}%</div>
                                     </div>
                                 ))}
                             </div>
                         ) : (
-                            <div className="text-center py-20 text-slate-300 font-bold uppercase tracking-widest">广场内容加载中...</div>
+                            <div className="space-y-3">
+                                {publicFlags.map(f => (
+                                    <div key={f.id} className="square-card">
+                                        <div className="flex items-center">
+                                            <div className="square-tag" style={{backgroundColor: f.color}}>{f.icon}</div>
+                                            <div>
+                                                <div className="font-black text-slate-800 text-sm">{f.title}</div>
+                                                <div className="text-[10px] font-bold text-slate-300 uppercase tracking-tight">{f.sub}</div>
+                                            </div>
+                                        </div>
+                                        <div className="progress-num">{f.progress}%</div>
+                                    </div>
+                                ))}
+                            </div>
                         )}
                     </main>
 
-                    <nav className="shrink-0 glass-header border-t border-slate-100 px-12 pb-[calc(var(--safe-bottom)+1rem)] pt-4 flex justify-between items-center z-30">
+                    {/* 底部导航 */}
+                    <nav className="shrink-0 bg-white border-t border-slate-100 px-12 pb-[calc(var(--safe-bottom)+1rem)] pt-4 flex justify-between items-center z-30">
                         <button onClick={() => setView('home')} className={`flex flex-col items-center gap-1 ${view === 'home' ? 'text-red-500' : 'text-slate-300'}`}>
-                            <FlagIcon size={22} />
-                            <span className="text-[9px] font-black uppercase tracking-widest">Flags</span>
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></svg>
+                            <span className="text-[9px] font-black uppercase">Flags</span>
                         </button>
-                        <button onClick={() => setIsCreating(true)} className="w-14 h-14 -mt-12 flag-gradient rounded-2xl shadow-xl shadow-red-200 flex items-center justify-center text-white text-3xl font-light border-4 border-white transform rotate-45 active:scale-90 transition-all">
+                        <button onClick={() => setIsCreating(true)} className="w-14 h-14 -mt-12 flag-gradient rounded-2xl shadow-xl shadow-red-100 flex items-center justify-center text-white text-3xl font-light border-4 border-white transform rotate-45 active:scale-90 transition-all">
                             <span className="-rotate-45">+</span>
                         </button>
                         <button onClick={() => setView('discover')} className={`flex flex-col items-center gap-1 ${view === 'discover' ? 'text-red-500' : 'text-slate-300'}`}>
-                            <UsersIcon size={22} />
-                            <span className="text-[9px] font-black uppercase tracking-widest">Square</span>
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                            <span className="text-[9px] font-black uppercase">Square</span>
                         </button>
                     </nav>
 
-                    {isCreating && (
-                        <div className="fixed inset-0 z-50 flex items-end">
-                            <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={() => !isLoading && setIsCreating(false)}></div>
-                            <div className="relative w-full bg-white rounded-t-[3rem] p-9 pb-[calc(var(--safe-bottom)+2rem)] animate-fade-in shadow-2xl">
-                                <h3 className="text-2xl font-black mb-1">新的挑战</h3>
-                                <p className="text-slate-400 text-xs mb-6 font-bold uppercase tracking-widest italic">让 AI 帮你拆解目标</p>
-                                <textarea autoFocus value={inputText} onChange={(e) => setInputText(e.target.value)} placeholder="例如：三个月学会游泳" className="w-full text-lg font-bold border-none focus:ring-0 placeholder:text-slate-200 resize-none mb-8 h-32 bg-slate-50 rounded-3xl p-6" />
-                                <button onClick={handleAISplit} disabled={isLoading || !inputText} className="w-full py-5 rounded-2xl bg-black text-white font-black uppercase flex justify-center items-center h-[64px]">
-                                    {isLoading ? <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div> : "开始拆解"}
-                                </button>
-                            </div>
-                        </div>
-                    )}
+                    {/* AI 拆解模态框 - 修改为上移避让键盘 */}
+                    {isCreating && <AICreationModal onClose={() => setIsCreating(false)} onAdd={(f) => setMyFlags([f, ...myFlags])} />}
                 </div>
             );
         }
 
-        const FlagIcon = ({size}) => <svg width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></svg>;
-        const UsersIcon = ({size}) => <svg width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>;
+        function AICreationModal({ onClose, onAdd }) {
+            const [step, setStep] = useState(1); // 1: 输入, 2: 细化询问, 3: 生成结果
+            const [inputText, setInputText] = useState('');
+            const [aiMessage, setAiMessage] = useState('下一个挑战是？');
+            const [loading, setLoading] = useState(false);
+
+            const handleProcess = async () => {
+                setLoading(true);
+                // 模拟 AI 引导逻辑
+                await new Promise(r => setTimeout(r, 1200));
+                
+                if (step === 1) {
+                    setAiMessage(`“${inputText}”是个很棒的目标！为了更精准，你打算每天投入多少时间，或者第一周的目标是什么？`);
+                    setStep(2);
+                } else if (step === 2) {
+                    setAiMessage("明白了！正在为你生成量化的执行清单...");
+                    await new Promise(r => setTimeout(r, 1500));
+                    onAdd({
+                        id: Date.now(),
+                        title: inputText,
+                        progress: 0,
+                        sub: '刚刚开启',
+                        icon: '🎯',
+                        color: '#34C759'
+                    });
+                    onClose();
+                }
+                setLoading(false);
+            };
+
+            return (
+                <div className="fixed inset-0 z-[100]">
+                    <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-md" onClick={onClose} />
+                    <div className="input-modal-content animate-slide-up">
+                        <div className="ai-bubble">
+                            {aiMessage}
+                        </div>
+                        
+                        <div className="space-y-6">
+                            <textarea 
+                                autoFocus
+                                value={inputText}
+                                onChange={(e) => setInputText(e.target.value)}
+                                placeholder={step === 1 ? "三个月学会游泳" : "比如：每天练习 1 小时"}
+                                className="w-full text-xl font-black border-none focus:ring-0 placeholder:text-slate-200 resize-none h-24 bg-transparent p-0"
+                            />
+                            
+                            <button 
+                                onClick={handleProcess}
+                                disabled={loading || !inputText}
+                                className="w-full py-5 rounded-[1.5rem] bg-black text-white font-black uppercase flex justify-center items-center h-[64px] active:scale-95 transition-all shadow-xl"
+                            >
+                                {loading ? <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div> : (step === 1 ? "开始拆解" : "确认细节")}
+                            </button>
+                        </div>
+
+                        {/* 额外关闭按钮 */}
+                        <button onClick={onClose} className="absolute -top-4 -right-4 w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-lg border border-slate-100">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#CCC" strokeWidth="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
+                    </div>
+                </div>
+            );
+        }
 
         ReactDOM.createRoot(document.getElementById('root')).render(<App />);
     </script>

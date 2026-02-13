@@ -24,19 +24,19 @@
         .modal-enter { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
         .no-scrollbar::-webkit-scrollbar { display: none; }
+        .login-bg { background-image: radial-gradient(circle at 20% 30%, #fff0f0 0%, #f8f9fb 100%); }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useMemo } = React;
 
         // --- Firebase 初始化 ---
         let db = null;
         let auth = null;
-        let firebaseReady = false;
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'flag-pro-v3';
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'flag-final-v4';
 
         const initFirebase = () => {
             if (typeof firebase !== 'undefined' && typeof __firebase_config !== 'undefined') {
@@ -45,126 +45,173 @@
                     if (!firebase.apps.length) firebase.initializeApp(config);
                     db = firebase.firestore();
                     auth = firebase.auth();
-                    firebaseReady = true;
                     return true;
                 } catch (e) { console.error(e); }
             }
             return false;
         };
 
+        // --- 主程序容器 ---
         function App() {
             const [user, setUser] = useState(null);
+            const [authLoaded, setAuthLoaded] = useState(false);
+
+            useEffect(() => {
+                const ready = initFirebase();
+                if (ready) {
+                    const unsubscribe = auth.onAuthStateChanged((u) => {
+                        setUser(u);
+                        setAuthLoaded(true);
+                    });
+                    return () => unsubscribe();
+                } else {
+                    // Fallback for dev environment without firebase config
+                    setAuthLoaded(true);
+                }
+            }, []);
+
+            if (!authLoaded) return (
+                <div className="h-screen w-screen flex items-center justify-center bg-white">
+                    <div className="w-8 h-8 border-4 border-red-500 border-t-transparent rounded-full animate-spin"></div>
+                </div>
+            );
+
+            // 强制登录拦截：如果没有 user，显示登录组件；如果有，显示主应用
+            return user ? <MainApp user={user} /> : <LoginScreen onLogin={setUser} />;
+        }
+
+        // --- 登录组件 ---
+        function LoginScreen() {
+            const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+            const handleLogin = async (provider) => {
+                setIsLoggingIn(true);
+                try {
+                    // 实际环境中这里调用微信/Google SDK，当前环境下使用匿名登录模拟
+                    if (auth) {
+                        await auth.signInAnonymously();
+                        // 登录成功后，通过 onAuthStateChanged 自动切换到 MainApp
+                    }
+                } catch (e) {
+                    console.error("Login Error:", e);
+                } finally {
+                    setIsLoggingIn(false);
+                }
+            };
+
+            return (
+                <div className="h-screen w-screen login-bg flex flex-col p-10 justify-center items-center">
+                    <div className="w-24 h-24 flag-gradient rounded-[2.5rem] shadow-2xl flex items-center justify-center text-white text-5xl font-black mb-10 italic transform -rotate-3 hover:rotate-0 transition-transform duration-500">F</div>
+                    <div className="text-center mb-16">
+                        <h2 className="text-4xl font-black mb-3 tracking-tighter text-slate-900">立下你的 Flag</h2>
+                        <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest">AI 驱动的目标达成社区</p>
+                    </div>
+                    
+                    <div className="w-full max-w-xs space-y-4">
+                        <button 
+                            onClick={() => handleLogin('wechat')} 
+                            disabled={isLoggingIn}
+                            className="w-full py-4 bg-[#07C160] text-white rounded-2xl font-bold flex items-center justify-center gap-3 active:scale-95 transition-all shadow-lg shadow-green-100 disabled:opacity-50"
+                        >
+                            <svg width="22" height="22" fill="currentColor" viewBox="0 0 24 24"><path d="M8.5 12c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm7 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zM22 10.5c0-4.14-3.81-7.5-8.5-7.5S5 6.36 5 10.5c0 2.15 1.03 4.11 2.71 5.49L7 19l3.35-1.68c.51.13 1.03.2 1.65.2 4.69 0 8.5-3.36 8.5-7.52zm-12.25 8.7L7.5 20.5l.5-2.5c-2.4-1.7-4-4.2-4-7C4 6.4 8.5 3 14 3s10 3.4 10 8-4.5 8-10 8c-.7 0-1.4-.05-2.05-.15z"/></svg>
+                            微信快捷登录
+                        </button>
+                        <button 
+                            onClick={() => handleLogin('google')} 
+                            disabled={isLoggingIn}
+                            className="w-full py-4 bg-white border border-slate-200 text-slate-700 rounded-2xl font-bold flex items-center justify-center gap-3 active:scale-95 transition-all shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                        >
+                            <svg width="20" height="20" viewBox="0 0 24 24"><path fill="#EA4335" d="M5.266 9.765A7.077 7.077 0 0 1 12 4.909c1.69 0 3.218.6 4.418 1.582L19.91 3C17.782 1.145 15.055 0 12 0 7.27 0 3.198 2.698 1.24 6.65l4.026 3.115z"/><path fill="#34A853" d="M16.04 18.013c-1.09.513-2.332.809-3.64.809-3.132 0-5.786-2.095-6.734-4.945l-4.04 3.125C3.582 20.94 7.518 24 12 24c3.086 0 5.86-1.114 7.96-2.968l-3.92-3.019z"/><path fill="#4285F4" d="M23.49 12.275c0-.825-.075-1.62-.215-2.385H12v4.515h6.44c-.28 1.505-1.125 2.78-2.4 3.635l3.92 3.02C22.25 19.115 24 15.935 24 12.275z"/><path fill="#FBBC05" d="M5.266 14.235l-4.026 3.115A11.932 11.932 0 0 1 0 12c0-1.92.445-3.73 1.24-5.35l4.026 3.115c-.215.655-.33 1.355-.33 2.085 0 .73.115 1.43.33 2.085z"/></svg>
+                            Google 登录
+                        </button>
+                    </div>
+                    
+                    <p className="mt-12 text-slate-300 text-[10px] font-medium max-w-[200px] text-center leading-relaxed">
+                        登录即代表您同意服务协议<br/>并开启 AI 驱动的目标达成之旅
+                    </p>
+                </div>
+            );
+        }
+
+        // --- 主应用逻辑 ---
+        function MainApp({ user }) {
             const [view, setView] = useState('home'); 
             const [isCreating, setIsCreating] = useState(false);
-            const [showLogin, setShowLogin] = useState(false);
             const [inputText, setInputText] = useState('');
             const [isLoading, setIsLoading] = useState(false);
             const [myFlags, setMyFlags] = useState([]);
             const [publicFlags, setPublicFlags] = useState([]);
 
-            useEffect(() => {
-                const setup = async () => {
-                    const ready = initFirebase();
-                    if (ready) {
-                        auth.onAuthStateChanged((u) => {
-                            if (u) {
-                                setUser(u);
-                                setShowLogin(false);
-                            } else {
-                                setUser(null);
-                                setShowLogin(true);
-                            }
-                        });
-                    } else {
-                        setUser({ uid: 'guest_user', displayName: '游客用户' });
-                    }
-                };
-                setup();
-            }, []);
+            const userName = useMemo(() => {
+                return `Flag_User_${user.uid.slice(-4)}`;
+            }, [user]);
 
-            // 监听数据流
+            // 监听数据流 (执行规则 1 & 2)
             useEffect(() => {
-                if (!user || !firebaseReady) return;
+                if (!db) return;
                 
-                // 我的 Flag
+                // 我的私有 Flag 集合
                 const unsub1 = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags')
                     .orderBy('createdAt', 'desc')
                     .onSnapshot(s => setMyFlags(s.docs.map(d => ({ id: d.id, ...d.data() }))), e => console.log(e));
                 
-                // 公共广场 Flag
+                // 公共广场 Flag 集合 (存放所有人的副本)
                 const unsub2 = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sharedFlags')
                     .onSnapshot(s => setPublicFlags(s.docs.map(d => ({ id: d.id, ...d.data() }))), e => console.log(e));
                 
                 return () => { unsub1(); unsub2(); };
             }, [user]);
 
-            // --- 登录逻辑 (伪装实现) ---
-            const handleSocialLogin = async (type) => {
-                setIsLoading(true);
-                // 这里模拟第三方登录，实际中会调用相应的 SDK
-                if (firebaseReady) {
-                    try {
-                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                            await auth.signInWithCustomToken(__initial_auth_token);
-                        } else {
-                            await auth.signInAnonymously();
-                        }
-                    } catch (e) { console.error(e); }
-                }
-                setIsLoading(false);
-            };
-
             const handleAISplit = async () => {
                 if (!inputText.trim()) return;
                 setIsLoading(true);
                 
                 const apiKey = ""; 
-                const systemPrompt = `你是一个顶级目标达成教练。请将用户目标拆解为3个极简阶段。JSON格式: {"milestones": [{"title": "...", "tip": "..."}]}`;
+                const systemPrompt = `你是一个顶级目标达成教练。请将用户目标拆解为3个极简阶段。JSON格式: {"milestones": [{"title": "标题", "tip": "具体建议，一句话小贴士"}]}`;
                 
                 let milestones = [
-                    { title: "初期准备", tip: "收集必要工具，明确第一步动作" },
-                    { title: "核心执行", tip: "保持专注，完成最关键的环节" },
-                    { title: "复盘收尾", tip: "检查成果，庆祝每一个小进展" }
+                    { title: "启动准备", tip: "收集必要资源，排除环境干扰" },
+                    { title: "核心攻坚", tip: "专注关键环节，保持每日推进" },
+                    { title: "成果巩固", tip: "进行质量检查，记录达成心得" }
                 ];
 
                 try {
-                    if (apiKey) {
-                        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                contents: [{ parts: [{ text: `目标：${inputText}` }] }],
-                                systemInstruction: { parts: [{ text: systemPrompt }] },
-                                generationConfig: { responseMimeType: "application/json" }
-                            })
-                        });
-                        const result = await response.json();
-                        if (result.candidates?.[0]?.content?.parts?.[0]?.text) {
-                            const aiData = JSON.parse(result.candidates[0].content.parts[0].text);
-                            milestones = aiData.milestones;
-                        }
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: `目标：${inputText}` }] }],
+                            systemInstruction: { parts: [{ text: systemPrompt }] },
+                            generationConfig: { responseMimeType: "application/json" }
+                        })
+                    });
+                    const result = await response.json();
+                    if (result.candidates?.[0]?.content?.parts?.[0]?.text) {
+                        const aiData = JSON.parse(result.candidates[0].content.parts[0].text);
+                        milestones = aiData.milestones;
                     }
-                } catch (err) { console.warn("AI 失败"); }
+                } catch (err) { console.warn("AI 拆解失败，使用兜底逻辑"); }
 
                 const newFlag = {
                     title: inputText,
                     progress: 0,
                     steps: milestones.map(m => ({ title: m.title, tip: m.tip, done: false })),
-                    uid: user?.uid,
-                    userName: user?.displayName || `用户_${user?.uid?.slice(0, 4)}`,
-                    createdAt: firebaseReady ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
+                    uid: user.uid,
+                    userName: userName,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
                 };
 
-                if (firebaseReady && user) {
+                try {
+                    // 同时写入私有和公共集合 (实现广场显示)
                     const ref = await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags').add(newFlag);
-                    // 确保广场中的 ID 与 个人库一致，便于后续精准更新进度
                     await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sharedFlags').doc(ref.id).set(newFlag);
-                } else {
-                    setMyFlags(p => [{ id: Date.now().toString(), ...newFlag }, ...p]);
+                    setIsCreating(false);
+                    setInputText('');
+                } catch (e) {
+                    console.error("保存失败:", e);
+                } finally {
+                    setIsLoading(false);
                 }
-                setIsCreating(false);
-                setInputText('');
-                setIsLoading(false);
             };
 
             const toggleStep = async (flagId, idx) => {
@@ -174,75 +221,55 @@
                 const newSteps = flag.steps.map((s, i) => i === idx ? { ...s, done: !s.done } : s);
                 const progress = Math.round((newSteps.filter(s => s.done).length / newSteps.length) * 100);
                 
-                if (newSteps[idx].done) confetti({ particleCount: 40, spread: 50, origin: { y: 0.8 } });
+                if (newSteps[idx].done) confetti({ particleCount: 30, spread: 60, origin: { y: 0.8 } });
 
-                // 同步更新 (重要：确保广场也更新)
-                if (firebaseReady && user) {
-                    const batch = db.batch();
-                    const userRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags').doc(flagId);
-                    const publicRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sharedFlags').doc(flagId);
-                    
-                    batch.update(userRef, { steps: newSteps, progress });
-                    batch.update(publicRef, { steps: newSteps, progress });
-                    await batch.commit();
-                } else {
-                    setMyFlags(prev => prev.map(f => f.id === flagId ? { ...f, steps: newSteps, progress } : f));
-                }
+                // 原子更新：同步私有库和广场 (规则 3: Auth Before Queries)
+                const batch = db.batch();
+                const userRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags').doc(flagId);
+                const publicRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sharedFlags').doc(flagId);
+                
+                batch.update(userRef, { steps: newSteps, progress });
+                batch.update(publicRef, { steps: newSteps, progress });
+                await batch.commit();
             };
-
-            if (showLogin) {
-                return (
-                    <div className="h-screen w-screen bg-white flex flex-col p-10 justify-center items-center">
-                        <div className="w-20 h-20 flag-gradient rounded-[2rem] shadow-xl flex items-center justify-center text-white text-4xl font-black mb-8 italic">F</div>
-                        <h2 className="text-3xl font-black mb-2 tracking-tighter">欢迎回来</h2>
-                        <p className="text-gray-400 font-bold mb-12 uppercase text-[10px] tracking-widest text-center">Join the community of flag setters</p>
-                        
-                        <div className="w-full space-y-4">
-                            <button onClick={() => handleSocialLogin('wechat')} className="w-full py-4 bg-[#07C160] text-white rounded-2xl font-bold flex items-center justify-center gap-3 active:scale-95 transition-all">
-                                <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path d="M8.5 12c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm7 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zM22 10.5c0-4.14-3.81-7.5-8.5-7.5S5 6.36 5 10.5c0 2.15 1.03 4.11 2.71 5.49L7 19l3.35-1.68c.51.13 1.03.2 1.65.2 4.69 0 8.5-3.36 8.5-7.52zm-12.25 8.7L7.5 20.5l.5-2.5c-2.4-1.7-4-4.2-4-7C4 6.4 8.5 3 14 3s10 3.4 10 8-4.5 8-10 8c-.7 0-1.4-.05-2.05-.15z"/></svg>
-                                微信快捷登录
-                            </button>
-                            <button onClick={() => handleSocialLogin('google')} className="w-full py-4 bg-white border border-gray-200 text-gray-700 rounded-2xl font-bold flex items-center justify-center gap-3 active:scale-95 transition-all">
-                                <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#EA4335" d="M5.266 9.765A7.077 7.077 0 0 1 12 4.909c1.69 0 3.218.6 4.418 1.582L19.91 3C17.782 1.145 15.055 0 12 0 7.27 0 3.198 2.698 1.24 6.65l4.026 3.115z"/><path fill="#34A853" d="M16.04 18.013c-1.09.513-2.332.809-3.64.809-3.132 0-5.786-2.095-6.734-4.945l-4.04 3.125C3.582 20.94 7.518 24 12 24c3.086 0 5.86-1.114 7.96-2.968l-3.92-3.019z"/><path fill="#4285F4" d="M23.49 12.275c0-.825-.075-1.62-.215-2.385H12v4.515h6.44c-.28 1.505-1.125 2.78-2.4 3.635l3.92 3.02C22.25 19.115 24 15.935 24 12.275z"/><path fill="#FBBC05" d="M5.266 14.235l-4.026 3.115A11.932 11.932 0 0 1 0 12c0-1.92.445-3.73 1.24-5.35l4.026 3.115c-.215.655-.33 1.355-.33 2.085 0 .73.115 1.43.33 2.085z"/></svg>
-                                Google 登录
-                            </button>
-                        </div>
-                        <button onClick={() => handleSocialLogin('guest')} className="mt-8 text-gray-300 font-bold text-xs underline underline-offset-4">继续以游客身份浏览</button>
-                    </div>
-                );
-            }
 
             return (
                 <div className="h-screen w-screen flex flex-col bg-[#F8F9FB] overflow-hidden">
-                    <header className="shrink-0 glass-header px-6 pb-4 pt-[var(--safe-top)] border-b border-gray-100 z-20 flex justify-between items-end h-24">
-                        <h1 className="text-2xl font-black tracking-tighter">{view === 'home' ? 'MY FLAGS' : 'EXPLORE'}</h1>
-                        <button onClick={() => auth.signOut()} className="text-[10px] font-bold text-gray-300 uppercase tracking-widest">Logout</button>
+                    <header className="shrink-0 glass-header px-6 pb-4 pt-[var(--safe-top)] border-b border-slate-100 z-20 flex justify-between items-end h-24">
+                        <h1 className="text-2xl font-black tracking-tighter">{view === 'home' ? 'MY FLAGS' : '广场广场'}</h1>
+                        <button onClick={() => auth.signOut()} className="text-[10px] font-bold text-slate-300 uppercase tracking-widest border border-slate-100 px-3 py-1 rounded-full">Sign Out</button>
                     </header>
 
                     <main className="flex-grow overflow-y-auto no-scrollbar px-6 py-6 pb-32">
                         {view === 'home' ? (
                             <div className="space-y-6">
+                                {myFlags.length === 0 && (
+                                    <div className="py-20 text-center opacity-30">
+                                        <div className="text-5xl mb-4">📍</div>
+                                        <p className="font-bold">还没有立下目标，点击 + 号开始</p>
+                                    </div>
+                                )}
                                 {myFlags.map(flag => (
-                                    <div key={flag.id} className="bg-white rounded-[2.5rem] p-7 card-shadow border border-gray-50">
-                                        <h2 className="text-xl font-bold mb-6 text-gray-800 leading-tight">{flag.title}</h2>
+                                    <div key={flag.id} className="bg-white rounded-[2.5rem] p-7 card-shadow border border-slate-50 transition-all">
+                                        <h2 className="text-xl font-black mb-6 text-slate-800 leading-tight">{flag.title}</h2>
                                         <div className="space-y-4 mb-8">
                                             {flag.steps.map((step, i) => (
                                                 <div key={i} onClick={() => toggleStep(flag.id, i)} className="flex gap-4 group cursor-pointer items-start">
-                                                    <div className={`shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all mt-0.5 ${step.done ? 'bg-red-500 border-red-500' : 'border-gray-200'}`}>
+                                                    <div className={`shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all mt-0.5 ${step.done ? 'bg-red-500 border-red-500 shadow-lg shadow-red-100' : 'border-slate-100 bg-slate-50'}`}>
                                                         {step.done && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4"><path d="M20 6L9 17l-5-5"></path></svg>}
                                                     </div>
                                                     <div className="flex-grow">
-                                                        <p className={`font-bold text-sm transition-all ${step.done ? 'text-gray-300 line-through' : 'text-gray-700'}`}>{step.title}</p>
-                                                        {step.tip && !step.done && <p className="text-[11px] text-gray-400 mt-1 font-medium italic">💡 {step.tip}</p>}
+                                                        <p className={`font-bold text-sm transition-all ${step.done ? 'text-slate-300 line-through' : 'text-slate-700'}`}>{step.title}</p>
+                                                        {step.tip && !step.done && <p className="text-[11px] text-slate-400 mt-1 font-medium italic opacity-70 leading-relaxed">💡 {step.tip}</p>}
                                                     </div>
                                                 </div>
                                             ))}
                                         </div>
                                         <div className="flex items-center gap-4">
-                                            <div className="flex-grow h-2 bg-gray-50 rounded-full overflow-hidden">
-                                                <div className="h-full flag-gradient transition-all duration-700" style={{width: `${flag.progress}%`}}></div>
+                                            <div className="flex-grow h-2 bg-slate-50 rounded-full overflow-hidden">
+                                                <div className="h-full flag-gradient transition-all duration-700 ease-out shadow-inner" style={{width: `${flag.progress}%`}}></div>
                                             </div>
-                                            <span className="text-xs font-black text-gray-300 italic">{flag.progress}%</span>
+                                            <span className="text-xs font-black text-slate-400 italic tracking-tighter">{flag.progress}%</span>
                                         </div>
                                     </div>
                                 ))}
@@ -250,17 +277,17 @@
                         ) : (
                             <div className="space-y-4">
                                 {publicFlags.map(p => (
-                                    <div key={p.id} className="bg-white p-6 rounded-3xl card-shadow flex items-center justify-between border border-gray-50">
+                                    <div key={p.id} className="bg-white p-6 rounded-3xl card-shadow flex items-center justify-between border border-slate-50">
                                         <div className="flex-grow pr-4">
-                                            <p className="font-black text-gray-800 text-lg tracking-tight leading-tight mb-1">{p.title}</p>
+                                            <p className="font-black text-slate-800 text-lg tracking-tight mb-2 line-clamp-1">{p.title}</p>
                                             <div className="flex items-center gap-2">
-                                                <div className="w-4 h-4 rounded-full bg-gray-100 flex items-center justify-center text-[8px] font-bold text-gray-400">@</div>
-                                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{p.userName}</p>
+                                                <div className="w-5 h-5 rounded-lg flag-gradient text-[8px] flex items-center justify-center text-white font-black">U</div>
+                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate max-w-[120px]">{p.userName || '未知挑战者'}</p>
                                             </div>
                                         </div>
                                         <div className="text-right shrink-0">
-                                            <p className="text-2xl font-black text-red-500 italic">{p.progress}%</p>
-                                            <div className="w-12 h-1 bg-gray-100 rounded-full mt-1 overflow-hidden ml-auto">
+                                            <p className="text-2xl font-black text-red-500 italic tracking-tighter leading-none">{p.progress}%</p>
+                                            <div className="w-10 h-1 bg-slate-50 rounded-full mt-2 overflow-hidden ml-auto">
                                                 <div className="h-full flag-gradient" style={{width: `${p.progress}%`}}></div>
                                             </div>
                                         </div>
@@ -270,27 +297,36 @@
                         )}
                     </main>
 
-                    <nav className="shrink-0 glass-header border-t border-gray-100 px-12 pb-[calc(var(--safe-bottom)+1rem)] pt-4 flex justify-between items-center z-30">
-                        <button onClick={() => setView('home')} className={view === 'home' ? 'text-red-500' : 'text-gray-300'}><svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"></path></svg></button>
-                        <button onClick={() => setIsCreating(true)} className="w-14 h-14 -mt-12 flag-gradient rounded-[20px] shadow-xl shadow-red-200 flex items-center justify-center text-white text-3xl font-light active:scale-95 transition-all border-4 border-white">+</button>
-                        <button onClick={() => setView('discover')} className={view === 'discover' ? 'text-red-500' : 'text-gray-300'}><svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"></path></svg></button>
+                    {/* 底部导航 */}
+                    <nav className="shrink-0 glass-header border-t border-slate-100 px-12 pb-[calc(var(--safe-bottom)+1rem)] pt-4 flex justify-between items-center z-30">
+                        <button onClick={() => setView('home')} className={view === 'home' ? 'text-red-500' : 'text-slate-300'}>
+                            <svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"></path></svg>
+                        </button>
+                        <button onClick={() => setIsCreating(true)} className="w-14 h-14 -mt-12 flag-gradient rounded-2xl shadow-xl shadow-red-200 flex items-center justify-center text-white text-3xl font-light active:scale-95 transition-all border-4 border-white transform rotate-45"><span className="-rotate-45">+</span></button>
+                        <button onClick={() => setView('discover')} className={view === 'discover' ? 'text-red-500' : 'text-gray-300'}>
+                            <svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"></path></svg>
+                        </button>
                     </nav>
 
+                    {/* AI 拆解弹窗 */}
                     {isCreating && (
                         <div className="fixed inset-0 z-50 flex items-end">
-                            <div className="absolute inset-0 bg-gray-900/20 backdrop-blur-md" onClick={() => !isLoading && setIsCreating(false)}></div>
+                            <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={() => !isLoading && setIsCreating(false)}></div>
                             <div className="relative w-full bg-white rounded-t-[3rem] p-9 pb-[calc(var(--safe-bottom)+2rem)] modal-enter shadow-2xl">
-                                <div className="w-12 h-1.5 bg-gray-100 rounded-full mx-auto mb-8"></div>
-                                <h3 className="text-2xl font-black mb-2 tracking-tighter uppercase">NEW FLAG</h3>
+                                <div className="w-12 h-1.5 bg-slate-100 rounded-full mx-auto mb-8"></div>
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="text-2xl font-black tracking-tighter uppercase">立下 Flag</h3>
+                                    <span className="text-[10px] font-bold text-red-500 bg-red-50 px-2 py-1 rounded">AI POWERED</span>
+                                </div>
                                 <textarea 
                                     autoFocus 
                                     value={inputText} 
                                     onChange={(e) => setInputText(e.target.value)} 
-                                    placeholder="输入你的目标..." 
-                                    className="w-full text-lg font-bold border-none focus:ring-0 placeholder:text-gray-200 resize-none mb-8 h-32 bg-gray-50 rounded-3xl p-6"
+                                    placeholder="例如：三个月内学会潜水" 
+                                    className="w-full text-lg font-bold border-none focus:ring-0 placeholder:text-slate-200 resize-none mb-8 h-32 bg-slate-50 rounded-3xl p-6"
                                 />
-                                <button onClick={handleAISplit} disabled={isLoading || !inputText} className="w-full py-5 rounded-2xl bg-black text-white font-black tracking-widest uppercase disabled:bg-gray-100 transition-all flex justify-center items-center gap-3">
-                                    {isLoading ? <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div> : "GO"}
+                                <button onClick={handleAISplit} disabled={isLoading || !inputText} className="w-full py-5 rounded-2xl bg-black text-white font-black tracking-widest uppercase disabled:bg-slate-100 transition-all flex justify-center items-center gap-3 active:scale-[0.98]">
+                                    {isLoading ? <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div> : "开始规划"}
                                 </button>
                             </div>
                         </div>

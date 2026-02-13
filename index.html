@@ -47,71 +47,109 @@
 
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* 防止渲染前闪烁 */
+        #root:empty::before {
+            content: "Loading...";
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            font-weight: bold;
+            color: #999;
+        }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useRef } = React;
 
-        // --- 1. Firebase 初始化 (遵守三个强制规则) ---
+        // --- 1. Firebase 初始化 ---
         let db = null;
         let auth = null;
         let firebaseReady = false;
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'flag-pro-v1';
 
-        try {
-            if (typeof __firebase_config !== 'undefined') {
-                const config = JSON.parse(__firebase_config);
-                if (!firebase.apps.length) firebase.initializeApp(config);
-                db = firebase.firestore();
-                auth = firebase.auth();
-                firebaseReady = true;
+        const initFirebase = () => {
+            if (typeof firebase !== 'undefined' && typeof __firebase_config !== 'undefined') {
+                try {
+                    const config = JSON.parse(__firebase_config);
+                    if (!firebase.apps.length) {
+                        firebase.initializeApp(config);
+                    }
+                    db = firebase.firestore();
+                    auth = firebase.auth();
+                    firebaseReady = true;
+                    return true;
+                } catch (e) {
+                    console.error("Firebase config parse error", e);
+                }
             }
-        } catch (e) { console.warn("Firebase not available"); }
+            return false;
+        };
 
         function App() {
             const [user, setUser] = useState(null);
-            const [view, setView] = useState('home'); // 'home' | 'discover'
+            const [view, setView] = useState('home'); 
             const [isCreating, setIsCreating] = useState(false);
             const [inputText, setInputText] = useState('');
             const [isLoading, setIsLoading] = useState(false);
             const [myFlags, setMyFlags] = useState([]);
             const [publicFlags, setPublicFlags] = useState([]);
+            const [appReady, setAppReady] = useState(false);
 
-            // 规则 3: 优先处理 Auth
+            // 规则 3: 优先处理 Auth 和初始化
             useEffect(() => {
-                const initAuth = async () => {
-                    if (!firebaseReady) {
-                        setUser({ uid: 'local_user', displayName: '游客' });
-                        return;
+                const setup = async () => {
+                    const ready = initFirebase();
+                    if (!ready) {
+                        // 如果 Firebase 没准备好，尝试 1 秒后重试一次
+                        setTimeout(() => {
+                            if (initFirebase()) proceed();
+                            else {
+                                setUser({ uid: 'local_user', displayName: '游客' });
+                                setAppReady(true);
+                            }
+                        }, 1000);
+                    } else {
+                        proceed();
                     }
+                };
+
+                const proceed = async () => {
                     try {
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                             await auth.signInWithCustomToken(__initial_auth_token);
                         } else {
                             await auth.signInAnonymously();
                         }
-                    } catch (err) { console.error("Auth Error", err); }
+                    } catch (err) { 
+                        console.error("Auth Error", err); 
+                    }
+                    setAppReady(true);
                 };
-                initAuth();
-                const unsub = auth.onAuthStateChanged(setUser);
-                return () => unsub();
+
+                setup();
+                
+                let unsub = null;
+                if (auth) {
+                    unsub = auth.onAuthStateChanged(setUser);
+                }
+                return () => unsub && unsub();
             }, []);
 
-            // 规则 1 & 2: 严格路径监听与简单查询
+            // 规则 1 & 2: 监听数据
             useEffect(() => {
                 if (!user || !firebaseReady) return;
 
-                // 监听个人 Flags
                 const myUnsub = db.collection('artifacts').doc(appId)
                     .collection('users').doc(user.uid).collection('flags')
                     .onSnapshot(snap => {
                         setMyFlags(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
                     }, err => console.error("My Flags Sync Error", err));
 
-                // 监听公共广场
                 const pubUnsub = db.collection('artifacts').doc(appId)
                     .collection('public').doc('data').collection('sharedFlags')
                     .onSnapshot(snap => {
@@ -121,7 +159,6 @@
                 return () => { myUnsub(); pubUnsub(); };
             }, [user]);
 
-            // AI 拆解逻辑
             const handleAISplit = async () => {
                 if (!inputText.trim()) return;
                 setIsLoading(true);
@@ -153,7 +190,6 @@
                     };
 
                     if (firebaseReady) {
-                        // 同时写入个人库和公共库
                         const ref = await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags').add(newFlag);
                         await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sharedFlags').doc(ref.id).set(newFlag);
                     }
@@ -162,11 +198,11 @@
                     setInputText('');
                 } catch (err) {
                     console.error("Split error", err);
-                    setIsCreating(false);
-                } finally { setIsLoading(false); }
+                } finally { 
+                    setIsLoading(false); 
+                }
             };
 
-            // --- 关键优化: 同时更新本地与广场的进度 ---
             const toggleStep = async (flagId, idx) => {
                 const flag = myFlags.find(f => f.id === flagId);
                 if (!flag) return;
@@ -188,15 +224,10 @@
                 
                 if (firebaseReady) {
                     const batch = db.batch();
-                    
-                    // 1. 更新个人文档
                     const myRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('flags').doc(flagId);
                     batch.update(myRef, { steps: newSteps, progress });
-                    
-                    // 2. 同步更新广场文档 (修复点)
                     const pubRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sharedFlags').doc(flagId);
                     batch.update(pubRef, { steps: newSteps, progress });
-                    
                     await batch.commit();
                 }
             };
@@ -210,6 +241,8 @@
                     await batch.commit();
                 }
             };
+
+            if (!appReady) return null;
 
             return (
                 <div className="min-h-screen flex flex-col bg-[#FBFBFD]">
@@ -240,7 +273,7 @@
                                     <div key={flag.id} className="bg-white rounded-[2.5rem] p-7 card-shadow animate-item" style={{animationDelay: `${index * 0.1}s`}}>
                                         <div className="flex justify-between items-start mb-6">
                                             <h2 className="text-2xl font-black text-gray-900 leading-tight pr-4">{flag.title}</h2>
-                                            <button onClick={() => deleteFlag(flag.id)} className="p-2 opacity-10"><svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"></path></svg></button>
+                                            <button onClick={() => deleteFlag(flag.id)} className="p-2 opacity-10 active:opacity-100"><svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"></path></svg></button>
                                         </div>
                                         <div className="space-y-3 mb-8">
                                             {flag.steps.map((step, i) => (

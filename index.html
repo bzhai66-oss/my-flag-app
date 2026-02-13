@@ -19,54 +19,59 @@
         .flag-gradient { background: linear-gradient(135deg, #FF4D4D 0%, #F53D3D 100%); }
         .glass-header { background: rgba(255, 255, 255, 0.9); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); }
         
-        /* 广场卡片还原图3 */
-        .square-card {
+        /* 1. Flags 页面卡片样式回归（参考图3） */
+        .flag-card {
             background: white;
-            border-radius: 1.5rem;
-            padding: 1.5rem;
-            margin-bottom: 1rem;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
+            border-radius: 2.5rem;
+            padding: 2rem;
+            margin-bottom: 1.5rem;
             box-shadow: 0 4px 20px rgba(0,0,0,0.02);
         }
-        .square-tag {
-            width: 24px;
-            height: 24px;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 10px;
-            color: white;
-            margin-right: 12px;
+        .flag-title { font-size: 1.25rem; font-weight: 800; color: #1D1D1F; margin-bottom: 1.5rem; }
+        .task-item { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+        .check-circle { 
+            width: 22px; height: 22px; border-radius: 50%; border: 2px solid #F2F2F7;
+            display: flex; align-items: center; justify-content: center; transition: all 0.2s;
         }
+        .check-circle.done { background: #FF4D4D; border-color: #FF4D4D; }
+        .task-text { font-size: 0.95rem; font-weight: 600; color: #8E8E93; }
+        .task-text.done { color: #D1D1D6; text-decoration: line-through; }
+        
+        /* 进度条样式（参考图3） */
+        .progress-container { margin-top: 2rem; display: flex; align-items: center; justify-content: space-between; }
+        .progress-bar-bg { flex-grow: 1; height: 4px; background: #F2F2F7; border-radius: 2px; overflow: hidden; margin-right: 12px; }
+        .progress-bar-fill { height: 100%; background: #FF4D4D; transition: width 0.5s ease; }
+        .progress-label { font-size: 10px; font-weight: 900; color: #D1D1D6; font-style: italic; }
 
-        /* 输入法避让：确保弹窗位置靠上 */
+        /* 2. 输入框深度优化：上移位置 */
         .input-modal-content {
             position: absolute;
-            top: 15%; /* 显著上移，避开键盘 */
+            top: 12%; /* 显著上移 */
             left: 5%;
             right: 5%;
             background: white;
             border-radius: 2.5rem;
             padding: 2rem;
             box-shadow: 0 30px 60px rgba(0,0,0,0.15);
+            z-index: 101;
         }
 
-        /* 进度数字样式 */
-        .progress-num {
-            font-size: 1.25rem;
-            font-weight: 900;
-            font-style: italic;
-            color: #FF4D4D;
+        /* 3. 细节勾选弹窗 */
+        .detail-select-modal {
+            position: absolute;
+            bottom: 0; left: 0; right: 0; top: 0;
+            background: white;
+            z-index: 105;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            border-radius: 2.5rem 2.5rem 0 0;
         }
 
         .no-scrollbar::-webkit-scrollbar { display: none; }
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
         .animate-slide-up { animation: slideUp 0.3s ease-out; }
         
-        /* 引导对话气泡 */
         .ai-bubble {
             background: #F2F2F7;
             padding: 1rem;
@@ -77,6 +82,18 @@
             margin-bottom: 1rem;
             color: #3A3A3C;
         }
+
+        /* 广场卡片还原图2 */
+        .square-card {
+            background: white;
+            border-radius: 1.5rem;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .square-tag { width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: justify-center; font-size: 10px; color: white; margin-right: 12px; }
     </style>
 </head>
 <body>
@@ -86,12 +103,22 @@
         const { useState, useEffect, useRef } = React;
 
         function App() {
-            const [user, setUser] = useState(null);
-            const [view, setView] = useState('login'); // login, home, discover
+            const [view, setView] = useState('login'); 
             const [isCreating, setIsCreating] = useState(false);
+            const [myFlags, setMyFlags] = useState([
+                { id: 1, title: '学会使用 React Hooks', tasks: [{t: '掌握 useState', d: true}, {t: '掌握 useEffect', d: true}], progress: 100, color: '#34C759' },
+                { id: 2, title: '三个月学会游泳', tasks: [{t: '购买装备', d: true}, {t: '练习换气', d: false}, {t: '自由泳50米', d: false}], progress: 30, color: '#FF4D4D' }
+            ]);
 
             if (view === 'login') return <LoginScreen onLogin={() => setView('home')} />;
-            return <MainContainer view={view} setView={setView} isCreating={isCreating} setIsCreating={setIsCreating} />;
+            return <MainContainer 
+                view={view} 
+                setView={setView} 
+                isCreating={isCreating} 
+                setIsCreating={setIsCreating} 
+                myFlags={myFlags}
+                setMyFlags={setMyFlags}
+            />;
         }
 
         function LoginScreen({ onLogin }) {
@@ -108,64 +135,74 @@
                             <input type="password" placeholder="密码" className="w-full bg-[#F7F8FA] border-none rounded-2xl p-5 font-bold outline-none" />
                             <button onClick={onLogin} className="w-full py-5 flag-gradient text-white rounded-[1.5rem] font-black shadow-lg">登录</button>
                         </div>
-                        <div className="flex items-center my-8"><div className="flex-grow h-[1px] bg-slate-100"></div><span className="mx-4 text-[10px] font-black text-slate-300">或者</span><div className="flex-grow h-[1px] bg-slate-100"></div></div>
-                        <div className="flex gap-4">
-                            <button onClick={onLogin} className="flex-1 bg-[#F7F8FA] py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2">微信</button>
-                            <button onClick={onLogin} className="flex-1 bg-[#F7F8FA] py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2">Google</button>
-                        </div>
                     </div>
                 </div>
             );
         }
 
-        function MainContainer({ view, setView, isCreating, setIsCreating }) {
-            const [myFlags, setMyFlags] = useState([
-                { id: 1, title: '学习法式烹饪', progress: 90, sub: '小厨娘', icon: '🍳', color: '#FF9500' },
-                { id: 2, title: '备战雅思考试 8.0', progress: 45, sub: 'ALEX_W', icon: '📚', color: '#007AFF' }
-            ]);
-
+        function MainContainer({ view, setView, isCreating, setIsCreating, myFlags, setMyFlags }) {
             const publicFlags = [
                 { id: 101, title: '挑战30天不喝奶茶', progress: 85, sub: '奶茶深度患者', icon: '🥤', color: '#FF3B30' },
-                { id: 102, title: '备战雅思考试 8.0', progress: 45, sub: 'ALEX_W', icon: '📚', color: '#007AFF' },
-                { id: 103, title: '打造一个开源 UI 库', progress: 12, sub: '极客张', icon: '💻', color: '#5856D6' },
-                { id: 104, title: '学习法式烹饪', progress: 90, sub: '小厨娘', icon: '🍳', color: '#FF9500' }
+                { id: 102, title: '备战雅思考试 8.0', progress: 45, sub: 'ALEX_W', icon: '📚', color: '#007AFF' }
             ];
+
+            const toggleTask = (flagId, taskIndex) => {
+                const updatedFlags = myFlags.map(f => {
+                    if (f.id === flagId) {
+                        const newTasks = [...f.tasks];
+                        newTasks[taskIndex].d = !newTasks[taskIndex].d;
+                        const doneCount = newTasks.filter(t => t.d).length;
+                        return { ...f, tasks: newTasks, progress: Math.round((doneCount / newTasks.length) * 100) };
+                    }
+                    return f;
+                });
+                setMyFlags(updatedFlags);
+            };
 
             return (
                 <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#F8F9FB]">
                     <header className="shrink-0 glass-header px-6 pb-4 pt-[var(--safe-top)] flex justify-between items-end h-24">
-                        <h1 className="text-2xl font-black tracking-tighter uppercase">{view === 'home' ? 'My Flags' : 'Square'}</h1>
-                        <div className="text-[10px] font-black text-slate-200 uppercase tracking-widest mb-1">Status: Active</div>
+                        <h1 className="text-2xl font-black tracking-tighter uppercase">{view === 'home' ? 'Flags' : 'Square'}</h1>
+                        <button className="text-[10px] font-black text-slate-200 uppercase mb-1">Logout</button>
                     </header>
 
                     <main className="flex-grow overflow-y-auto no-scrollbar px-5 py-4 pb-32">
                         {view === 'home' ? (
-                            <div className="space-y-4">
+                            <div className="animate-in fade-in duration-500">
                                 {myFlags.map(f => (
-                                    <div key={f.id} className="square-card">
-                                        <div className="flex items-center">
-                                            <div className="square-tag" style={{backgroundColor: f.color}}>{f.icon}</div>
-                                            <div>
-                                                <div className="font-black text-slate-800 text-sm">{f.title}</div>
-                                                <div className="text-[10px] font-bold text-slate-300 uppercase tracking-tight">{f.sub}</div>
-                                            </div>
+                                    <div key={f.id} className="flag-card">
+                                        <div className="flag-title">{f.title}</div>
+                                        <div className="space-y-1">
+                                            {f.tasks.map((t, idx) => (
+                                                <div key={idx} className="task-item" onClick={() => toggleTask(f.id, idx)}>
+                                                    <div className={`check-circle ${t.d ? 'done' : ''}`}>
+                                                        {t.d && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4"><polyline points="20 6 9 17 4 12"/></svg>}
+                                                    </div>
+                                                    <div className={`task-text ${t.d ? 'done' : ''}`}>{t.t}</div>
+                                                </div>
+                                            ))}
                                         </div>
-                                        <div className="progress-num">{f.progress}%</div>
+                                        <div className="progress-container">
+                                            <div className="progress-bar-bg">
+                                                <div className="progress-bar-fill" style={{ width: `${f.progress}%`, backgroundColor: f.color }}></div>
+                                            </div>
+                                            <div className="progress-label">{f.progress}%</div>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
                         ) : (
                             <div className="space-y-3">
                                 {publicFlags.map(f => (
-                                    <div key={f.id} className="square-card">
+                                    <div key={f.id} className="square-card shadow-sm">
                                         <div className="flex items-center">
                                             <div className="square-tag" style={{backgroundColor: f.color}}>{f.icon}</div>
                                             <div>
                                                 <div className="font-black text-slate-800 text-sm">{f.title}</div>
-                                                <div className="text-[10px] font-bold text-slate-300 uppercase tracking-tight">{f.sub}</div>
+                                                <div className="text-[10px] font-bold text-slate-300 uppercase">{f.sub}</div>
                                             </div>
                                         </div>
-                                        <div className="progress-num">{f.progress}%</div>
+                                        <div className="text-xl font-black italic text-red-500">{f.progress}%</div>
                                     </div>
                                 ))}
                             </div>
@@ -175,85 +212,124 @@
                     {/* 底部导航 */}
                     <nav className="shrink-0 bg-white border-t border-slate-100 px-12 pb-[calc(var(--safe-bottom)+1rem)] pt-4 flex justify-between items-center z-30">
                         <button onClick={() => setView('home')} className={`flex flex-col items-center gap-1 ${view === 'home' ? 'text-red-500' : 'text-slate-300'}`}>
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></svg>
-                            <span className="text-[9px] font-black uppercase">Flags</span>
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></svg>
+                            <span className="text-[9px] font-black uppercase tracking-widest">Flags</span>
                         </button>
-                        <button onClick={() => setIsCreating(true)} className="w-14 h-14 -mt-12 flag-gradient rounded-2xl shadow-xl shadow-red-100 flex items-center justify-center text-white text-3xl font-light border-4 border-white transform rotate-45 active:scale-90 transition-all">
+                        <button onClick={() => setIsCreating(true)} className="w-14 h-14 -mt-12 flag-gradient rounded-2xl shadow-xl flex items-center justify-center text-white text-3xl transform rotate-45 border-4 border-white active:scale-90 transition-all">
                             <span className="-rotate-45">+</span>
                         </button>
                         <button onClick={() => setView('discover')} className={`flex flex-col items-center gap-1 ${view === 'discover' ? 'text-red-500' : 'text-slate-300'}`}>
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                            <span className="text-[9px] font-black uppercase">Square</span>
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+                            <span className="text-[9px] font-black uppercase tracking-widest text-center">Square</span>
                         </button>
                     </nav>
 
-                    {/* AI 拆解模态框 - 修改为上移避让键盘 */}
                     {isCreating && <AICreationModal onClose={() => setIsCreating(false)} onAdd={(f) => setMyFlags([f, ...myFlags])} />}
                 </div>
             );
         }
 
         function AICreationModal({ onClose, onAdd }) {
-            const [step, setStep] = useState(1); // 1: 输入, 2: 细化询问, 3: 生成结果
+            const [step, setStep] = useState(1); // 1: 输入目标, 2: 详情勾选确认
             const [inputText, setInputText] = useState('');
-            const [aiMessage, setAiMessage] = useState('下一个挑战是？');
             const [loading, setLoading] = useState(false);
+            const [aiMilestones, setAiMilestones] = useState([]);
 
-            const handleProcess = async () => {
+            const handleStartDecomposition = async () => {
                 setLoading(true);
-                // 模拟 AI 引导逻辑
-                await new Promise(r => setTimeout(r, 1200));
+                // 模拟 AI 拆解过程
+                await new Promise(r => setTimeout(r, 1500));
                 
-                if (step === 1) {
-                    setAiMessage(`“${inputText}”是个很棒的目标！为了更精准，你打算每天投入多少时间，或者第一周的目标是什么？`);
-                    setStep(2);
-                } else if (step === 2) {
-                    setAiMessage("明白了！正在为你生成量化的执行清单...");
-                    await new Promise(r => setTimeout(r, 1500));
-                    onAdd({
-                        id: Date.now(),
-                        title: inputText,
-                        progress: 0,
-                        sub: '刚刚开启',
-                        icon: '🎯',
-                        color: '#34C759'
-                    });
-                    onClose();
-                }
+                // 模拟生成的详细步骤
+                const mockMilestones = [
+                    { t: '设定具体可量化的学习计划', d: true },
+                    { t: '购买相关教材或课程', d: true },
+                    { t: '每天坚持练习 45 分钟', d: true },
+                    { t: '第一周完成基础理论自测', d: false },
+                    { t: '在社区发布一个练习作品', d: false }
+                ];
+                setAiMilestones(mockMilestones);
+                setStep(2);
                 setLoading(false);
+            };
+
+            const toggleMilestone = (idx) => {
+                const newM = [...aiMilestones];
+                newM[idx].d = !newM[idx].d;
+                setAiMilestones(newM);
+            };
+
+            const confirmAdd = () => {
+                const selectedTasks = aiMilestones.filter(m => m.d);
+                onAdd({
+                    id: Date.now(),
+                    title: inputText,
+                    tasks: aiMilestones.map(m => ({ t: m.t, d: false })), // 初始状态均为未完成
+                    progress: 0,
+                    color: '#FF4D4D'
+                });
+                onClose();
             };
 
             return (
                 <div className="fixed inset-0 z-[100]">
                     <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-md" onClick={onClose} />
-                    <div className="input-modal-content animate-slide-up">
-                        <div className="ai-bubble">
-                            {aiMessage}
+                    
+                    {step === 1 && (
+                        <div className="input-modal-content animate-slide-up">
+                            <div className="ai-bubble">下一个挑战是？</div>
+                            <div className="space-y-6">
+                                <textarea 
+                                    autoFocus
+                                    value={inputText}
+                                    onChange={(e) => setInputText(e.target.value)}
+                                    placeholder="输入你的宏大目标..."
+                                    className="w-full text-xl font-black border-none focus:ring-0 placeholder:text-slate-200 resize-none h-24 bg-transparent p-0"
+                                />
+                                <button 
+                                    onClick={handleStartDecomposition}
+                                    disabled={loading || !inputText}
+                                    className="w-full py-5 rounded-[1.5rem] bg-black text-white font-black uppercase flex justify-center items-center h-[64px] active:scale-95 transition-all shadow-xl"
+                                >
+                                    {loading ? <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div> : "开始智能拆解"}
+                                </button>
+                            </div>
                         </div>
-                        
-                        <div className="space-y-6">
-                            <textarea 
-                                autoFocus
-                                value={inputText}
-                                onChange={(e) => setInputText(e.target.value)}
-                                placeholder={step === 1 ? "三个月学会游泳" : "比如：每天练习 1 小时"}
-                                className="w-full text-xl font-black border-none focus:ring-0 placeholder:text-slate-200 resize-none h-24 bg-transparent p-0"
-                            />
-                            
-                            <button 
-                                onClick={handleProcess}
-                                disabled={loading || !inputText}
-                                className="w-full py-5 rounded-[1.5rem] bg-black text-white font-black uppercase flex justify-center items-center h-[64px] active:scale-95 transition-all shadow-xl"
-                            >
-                                {loading ? <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div> : (step === 1 ? "开始拆解" : "确认细节")}
-                            </button>
-                        </div>
+                    )}
 
-                        {/* 额外关闭按钮 */}
-                        <button onClick={onClose} className="absolute -top-4 -right-4 w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-lg border border-slate-100">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#CCC" strokeWidth="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                        </button>
-                    </div>
+                    {step === 2 && (
+                        <div className="detail-select-modal animate-slide-up pt-[var(--safe-top)]">
+                            <div className="flex justify-between items-center mb-8">
+                                <h2 className="text-2xl font-black italic tracking-tighter">PLANNING</h2>
+                                <button onClick={onClose} className="text-slate-300 font-bold uppercase text-xs">Cancel</button>
+                            </div>
+                            
+                            <div className="bg-red-50 p-6 rounded-[2rem] mb-8">
+                                <div className="text-[10px] font-black text-red-300 uppercase mb-1">Target</div>
+                                <div className="text-xl font-black text-red-500">{inputText}</div>
+                            </div>
+
+                            <div className="flex-grow overflow-y-auto no-scrollbar">
+                                <div className="text-[10px] font-black text-slate-300 uppercase mb-4 tracking-widest">确认执行清单</div>
+                                <div className="space-y-4">
+                                    {aiMilestones.map((m, i) => (
+                                        <div key={i} onClick={() => toggleMilestone(i)} className={`p-5 rounded-2xl flex items-center gap-4 border-2 transition-all ${m.d ? 'border-red-500 bg-red-50/30' : 'border-slate-50 bg-white'}`}>
+                                            <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${m.d ? 'bg-red-500 border-red-500' : 'border-slate-100'}`}>
+                                                {m.d && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4"><polyline points="20 6 9 17 4 12"/></svg>}
+                                            </div>
+                                            <div className={`font-bold text-sm ${m.d ? 'text-red-500' : 'text-slate-400'}`}>{m.t}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="py-6">
+                                <button onClick={confirmAdd} className="w-full py-5 rounded-[1.5rem] flag-gradient text-white font-black shadow-xl active:scale-95 transition-all">
+                                    确认并添加到我的 FLAG
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         }
